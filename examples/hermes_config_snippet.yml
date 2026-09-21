@@ -1,0 +1,18 @@
+context:
+  engine: jev-lcm
+jev_lcm:
+  # auto filters providers whose environment variable is absent.
+  jev_provider: auto
+  jev_fallback_enabled: true
+  jev_fallback_order: [typesafe, openrouter]
+  jev_calibration_enabled: true
+  keep_threshold: 0.15
+  keep_threshold_max: 0.40
+  min_keep_rate: 0.10
+  jev_batch_window_turns: 3
+  jev_max_candidates_per_batch: 300
+  hint_budget_tokens: 4000
+
+# Supply these outside this file through a secret manager:
+# TYPESAFE_API_KEY
+# OPENROUTER_API_KEY

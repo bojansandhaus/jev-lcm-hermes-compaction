@@ -33,9 +33,13 @@ omit = ["*/_vendor/*"]
 
 [tool.mypy]
 python_version = "3.11"
+files = ["src/jev_lcm_hermes_compaction"]
+mypy_path = ["src"]
+explicit_package_bases = true
 ignore_missing_imports = true
 follow_imports = "silent"
 exclude = ["_vendor"]
 
 [tool.black]
+target-version = ["py311"]
 extend-exclude = "_vendor"

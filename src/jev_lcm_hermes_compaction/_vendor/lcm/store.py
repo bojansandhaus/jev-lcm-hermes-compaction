@@ -387,6 +387,20 @@ class MessageStore:
                 key TEXT PRIMARY KEY,
                 value TEXT
             );
+            CREATE TABLE IF NOT EXISTS protected_anchor_index (
+                session_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                store_id INTEGER,
+                start_offset INTEGER NOT NULL,
+                end_offset INTEGER NOT NULL,
+                anchor_text TEXT NOT NULL,
+                keep_score REAL NOT NULL,
+                action TEXT NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (session_id, candidate_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_protected_anchor_session
+                ON protected_anchor_index(session_id, updated_at, candidate_id);
         """)
         ensure_external_content_fts(
             self._conn,
@@ -1130,7 +1144,99 @@ class MessageStore:
                 conn.commit()
         return wrote
 
-    # -- Compaction telemetry ------------------------------------------------
+    def write_protected_anchor_index(
+        self,
+        session_id: str,
+        anchors: list[dict[str, Any]],
+    ) -> None:
+        """Persist the exact Jev-protected anchor pointers for one session.
+
+        Raw message content remains in ``messages``. This sidecar stores only
+        the exact span and a pointer, allowing active-context assembly to
+        recover rankings after a process restart without making Jev storage.
+        """
+        if not session_id:
+            return
+        conn = self._conn
+        if conn is None:
+            return
+        now = time.time()
+        with self._write_lock, conn:
+            prepared: list[tuple[Any, ...]] = []
+            for anchor in anchors:
+                store_id = anchor.get("store_id")
+                start = int(anchor["start"])
+                end = int(anchor["end"])
+                text = str(anchor["text"])
+                if store_id is None or start < 0 or end <= start:
+                    raise ValueError("protected anchor must reference a non-empty raw span")
+                raw = conn.execute(
+                    "SELECT session_id, content FROM messages WHERE store_id = ?",
+                    (store_id,),
+                ).fetchone()
+                if raw is None or raw[0] != session_id:
+                    raise ValueError("protected anchor raw pointer is outside its session")
+                content = raw[1] or ""
+                if content[start:end] != text:
+                    raise ValueError("protected anchor span does not match raw content")
+                prepared.append(
+                    (
+                        session_id,
+                        str(anchor["candidate_id"]),
+                        int(store_id),
+                        start,
+                        end,
+                        text,
+                        float(anchor["score"]),
+                        str(anchor.get("action", "keep")),
+                        now,
+                    )
+                )
+            conn.execute(
+                "DELETE FROM protected_anchor_index WHERE session_id = ?",
+                (session_id,),
+            )
+            conn.executemany(
+                """
+                INSERT INTO protected_anchor_index
+                    (session_id, candidate_id, store_id, start_offset,
+                     end_offset, anchor_text, keep_score, action, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                prepared,
+            )
+
+    def get_protected_anchor_index(self, session_id: str) -> list[dict[str, Any]]:
+        """Load persisted protected anchors in deterministic priority order."""
+        conn = self._conn
+        if conn is None:
+            return []
+        rows = conn.execute(
+            """
+            SELECT i.candidate_id, i.store_id, i.start_offset, i.end_offset,
+                   substr(m.content, i.start_offset + 1, i.end_offset - i.start_offset),
+                   i.keep_score, i.action
+            FROM protected_anchor_index AS i
+            JOIN messages AS m
+              ON m.store_id = i.store_id AND m.session_id = i.session_id
+            WHERE i.session_id = ? AND i.action IN ('keep', 'truncate')
+            ORDER BY i.keep_score DESC, i.candidate_id ASC
+            """,
+            (session_id,),
+        ).fetchall()
+        return [
+            {
+                "candidate_id": row[0],
+                "store_id": row[1],
+                "start": row[2],
+                "end": row[3],
+                "text": row[4],
+                "score": row[5],
+                "action": row[6],
+            }
+            for row in rows
+        ]
+
 
     @staticmethod
     def _compaction_telemetry_key(conversation_id: str) -> str:

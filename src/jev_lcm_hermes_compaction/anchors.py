@@ -1,4 +1,5 @@
 """Exact source spans; overlapping matches are retained without rewriting."""
+
 import re
 from dataclasses import dataclass, field
 from typing import Any

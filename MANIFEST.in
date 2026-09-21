@@ -1,3 +1,6 @@
 include __init__.py plugin.yaml plugin.py THIRD_PARTY_NOTICES.md
 recursive-include docs *.md
-include tests/conftest.py
+include tests/conftest.py CHANGELOG.md CONTRIBUTING.md RELEASE_NOTES_v1.0.0.md
+recursive-include tests *.json
+recursive-include evaluation *.py *.json *.md
+recursive-include examples *.yml

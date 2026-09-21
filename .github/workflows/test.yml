@@ -16,7 +16,9 @@ jobs:
           ref: 52d203d041f9e4baad4a78013abeccd8f13a86e3
           path: host
       - run: python -m pip install -e './host' '.[dev]'
-      - run: python -m pytest tests -q
+      - run: python -m mypy
+      - run: python -m black --check --target-version py311 src tests
+      - run: python -m pytest tests -q --cov=jev_lcm_hermes_compaction --cov-report=term-missing --cov-fail-under=90
         env:
           PYTHONPATH: host
       - run: python -m build

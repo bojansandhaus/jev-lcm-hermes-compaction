@@ -1,0 +1,28 @@
+[
+  {
+    "mode": "synthetic-transport-integration",
+    "arm": "lcm",
+    "budget_tokens": 2000,
+    "token_accounting": "LCM count_messages_tokens",
+    "input_tokens": 52636,
+    "active_tokens": 49,
+    "exact_evidence_retention": 0,
+    "raw_retrieval_retention": 1,
+    "freed_ratio": 0.9990690781974314,
+    "model_calls": 1,
+    "production_comparison": false
+  },
+  {
+    "mode": "synthetic-transport-integration",
+    "arm": "jev-lcm",
+    "budget_tokens": 2000,
+    "token_accounting": "LCM count_messages_tokens",
+    "input_tokens": 52636,
+    "active_tokens": 154,
+    "exact_evidence_retention": 1,
+    "raw_retrieval_retention": 1,
+    "freed_ratio": 0.9970742457633559,
+    "model_calls": 1,
+    "production_comparison": false
+  }
+]
