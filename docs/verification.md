@@ -22,7 +22,7 @@ The `1.0.0` changelog section and [RELEASE_NOTES_v1.0.0.md](../RELEASE_NOTES_v1.
 
 ## Publication record
 
-- Continuous integration, workflow `Tests`, was read back green on the pushed rework commits: run `35636650091` for `37cf192` in this repository.
+- Continuous integration, workflow `Tests`, passes on the default branch: the runs for the pushed rework commits, including `35637318780`, were read back green.
 - Repository topics include `lcm`, `compaction`, `context-management`, and `jev`; the DSH repository also carries the required `dsh-plugin` discovery topic.
 - The `v1.0.0` release exists as a draft and is marked prerelease, with content taken from `RELEASE_NOTES_v1.0.0.md`. A draft release is not a published release and the tag does not exist until it is published.
 - npm publication is still blocked: `npm whoami` reports no session on this machine, so `npm publish` cannot run until an npm login exists. For this distribution the remaining command is `npm publish --access public`.
