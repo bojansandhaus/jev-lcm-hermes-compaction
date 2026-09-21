@@ -91,7 +91,15 @@ jev_lcm:
   jev_provider: auto
 ```
 
-The exact host plugin-manager command is version-dependent and is not claimed here. See [`docs/operator-guide.md`](docs/operator-guide.md). Do not run two compaction engines in one profile.
+`pip install .` registers the package in the host's `hermes_agent.plugins` entry-point group, so the host discovers the plugin. Discovery is not activation: the host loads a non-bundled plugin only when it is allow-listed.
+
+```sh
+hermes plugins enable jev-lcm
+```
+
+Leave `--allow-tool-override` off. The engine's `lcm_grep` and `lcm_expand` calls route through the host's context-engine dispatch, and the host refuses to let a plugin shadow its built-in tools by default.
+
+A directory install works as well: place `plugin.yaml`, `plugin.py`, and `__init__.py` in `<HERMES_HOME>/plugins/jev-lcm/` with the package importable, then run the same command. `hermes plugins enable` resolves names from that directory, so it answers `No plugin named 'jev-lcm'` when neither the entry point nor the directory is present. Do not run two compaction engines in one profile. Details and executed receipts: [`docs/operator-guide.md`](docs/operator-guide.md).
 
 ## What configuration is available?
 

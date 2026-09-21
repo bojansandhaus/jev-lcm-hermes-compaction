@@ -10,7 +10,22 @@ From a checkout, use the Python environment that runs Hermes:
 python -m pip install .
 ```
 
-The repository declares Python >=3.11. A global installation depends on the host's plugin discovery and can affect every profile that selects the engine. A profile-scoped installation is safer for evaluation. The exact Hermes plugin-manager command is host-version dependent and is intentionally not invented here. Confirm discovery with the host's own plugin listing.
+```sh
+python -m pip install .
+hermes plugins enable jev-lcm
+```
+
+The repository declares Python >=3.11. `pip install .` declares the package in the `hermes_agent.plugins` entry-point group, which is how the host discovers it. Discovery alone does not activate a non-bundled plugin, so the enable step writes the `plugins.enabled` allow-list; `hermes plugins disable jev-lcm` reverses it. An installation into a shared environment can affect every profile that selects the engine, so a profile-scoped installation is safer for evaluation.
+
+Two install routes were executed against the host loader: the entry-point route (wheel installed, no plugin directory) reported `source: entrypoint`, and a directory install at `<HERMES_HOME>/plugins/jev-lcm/` reported `source: user`. In this host revision the directory route requires `__init__.py` beside `plugin.yaml` and `plugin.py`, and answers `No __init__.py in <dir>` without it. `hermes plugins enable` resolves names from that directory, so it reports `No plugin named 'jev-lcm'` when the plugin is installed only as an entry point; write the allow-list in `config.yaml` for that route:
+
+```yaml
+plugins:
+  enabled:
+    - jev-lcm
+```
+
+Do not pass `--allow-tool-override`. The engine's `lcm_grep` and `lcm_expand` calls reach the host context-engine dispatch, and the host refuses to let a plugin shadow built-in tools by default.
 
 ## Configure
 

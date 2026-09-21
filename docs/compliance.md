@@ -15,7 +15,7 @@ This page is part of the rework of the Jev-only compaction failure modes reporte
 | Dual-provider authentication (TypeSafe, OpenRouter, fallback) | `src/jev_lcm_hermes_compaction/providers.py`, `jev_client.py`, `settings.py` | `tests/test_providers.py::test_primary_rate_limit_uses_fallback_without_exposing_secret`, `tests/test_core.py::test_single_provider`, `::test_failures_cooldown_recovery_and_secret_safety`, `::test_no_keys_and_no_budget`, `::test_malformed`, `::test_bad_endpoint`, `tests/test_http_cli.py::test_real_http_transport` | Passing |
 | Recall tools remain usable | `compressor.py` tool handlers | `tests/test_integration.py::test_real_compaction_and_recall_with_failed_jev` | Passing |
 | Recall-at-budget evaluator | `evaluation/run_eval.py` | `tests/test_evaluation.py::test_real_compaction_and_raw_retrieval`, `::test_retention_is_sensitive_to_real_assembled_output`, `::test_invalid_budget_rejected` | Passing |
-| Hermes installation and engine registration | `plugin.py`, `plugin.yaml` | `tests/test_plugin.py::test_opt_in_registration_and_clone` plus a fresh-home install receipt in `docs/verification.md` | Passing |
+| Hermes installation and engine registration | `plugin.py`, `plugin.yaml`, `pyproject.toml` (`hermes_agent.plugins` entry point) | `tests/test_plugin.py::test_opt_in_registration_and_clone`, plus fresh-home install receipts for both discovery routes and the `plugins.enabled` allow-list in `docs/verification.md` | Passing |
 
 ## Required regression assertions
 
