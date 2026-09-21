@@ -1,6 +1,8 @@
 """LCM subclass using the pinned ingest and assembly extension points."""
 import json
 import logging
+from functools import wraps
+from threading import RLock
 from typing import Any
 from ._vendor.lcm.engine import LCMEngine
 from ._vendor.lcm.config import LCMConfig
@@ -9,8 +11,17 @@ from .prepass import Prepass
 from .settings import Settings
 
 
+def serialized(method: Any) -> Any:
+    @wraps(method)
+    def guarded(self: Any, *args: Any, **kwargs: Any) -> Any:
+        with self._jev_lock:
+            return method(self, *args, **kwargs)
+    return guarded
+
+
 class JevLCMContextCompressor(LCMEngine):
     def __init__(self, config: LCMConfig | None = None, hermes_home: str = "", settings: Settings | None = None):
+        self._jev_lock = RLock()
         self.jev_settings = settings or Settings()
         self.jev = Prepass(self.jev_settings)
         self._jev_compacting = False
@@ -20,12 +31,15 @@ class JevLCMContextCompressor(LCMEngine):
     def name(self) -> str:
         return "jev-lcm"
 
+    @serialized
     def clone_for_agent(self) -> Any:
         clone = super().clone_for_agent()
+        clone._jev_lock = RLock()
         clone.jev_settings = self.jev_settings
         clone.jev = Prepass(self.jev_settings)
         return clone
 
+    @serialized
     def _ingest_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         working = super()._ingest_messages(messages)
         if not self._session_id or self._session_ignored or self._session_stateless:
@@ -54,6 +68,7 @@ class JevLCMContextCompressor(LCMEngine):
         focus = '\n'.join(p for p in (focus_topic, hint) if p) if hint else focus_topic
         return super()._summarize_leaf_chunk_with_rescue(initial_chunk, focus_topic=focus, deadline=deadline)
 
+    @serialized
     def compress(self, messages: list[dict[str, Any]], current_tokens: int = 0, focus_topic: str | None = None, force: bool = False) -> list[dict[str, Any]]:
         before = count_messages_tokens(messages)
         node_count = len(self._dag.get_session_nodes(self._session_id))
@@ -65,6 +80,7 @@ class JevLCMContextCompressor(LCMEngine):
         self.jev.metrics.compaction(before, count_messages_tokens(result), max(0, len(self._dag.get_session_nodes(self._session_id)) - node_count), count_messages_tokens([m for m in result if m.get('role') in ('user', 'assistant')]))
         return result
 
+    @serialized
     def on_turn_complete(self, messages: list[dict[str, Any]], **kwargs: Any) -> None:
         self.jev.tick()
         self._ingest_messages(messages)
@@ -72,11 +88,13 @@ class JevLCMContextCompressor(LCMEngine):
         urgent = self.threshold_tokens > 0 and usage >= self.jev_settings.jev_urgent_context_ratio * self.threshold_tokens
         self.jev.flush(force=urgent)
 
+    @serialized
     def on_session_end(self, session_id: str, messages: list[dict[str, Any]]) -> None:
         self._ingest_messages(messages)
         self.jev.flush(force=True)
         super().on_session_end(session_id, messages)
 
+    @serialized
     def on_session_reset(self) -> None:
         self.jev.flush(force=True)
         super().on_session_reset()
@@ -88,6 +106,7 @@ class JevLCMContextCompressor(LCMEngine):
             schemas.append({"name": name, "description": "Inspect session-local Jev ranking diagnostics without credential values.", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}})
         return schemas
 
+    @serialized
     def handle_tool_call(self, name: str, args: dict[str, Any], **kwargs: Any) -> str:
         if name == 'jev_stats':
             return json.dumps(dict(self.jev.metrics))
