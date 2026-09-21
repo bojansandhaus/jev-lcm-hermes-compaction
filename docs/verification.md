@@ -12,9 +12,9 @@ Hermes PR #116246 motivates the acceptance gates: compaction must retain useful 
 ## Not established
 
 - The production recall-at-budget comparison. The upstream transcript, provider and model identities, and the upstream evaluation policy were never supplied, so no production number is asserted anywhere in this repository.
-- Live TypeSafe and OpenRouter wire compatibility. The parity fixtures inject transports; they do not prove live provider behavior.
-- Remote CI on an exact head commit. The workflow exists and runs the same gates locally, but no remote run has been recorded.
-- Publication: `gh auth status` reports no authenticated host and `npm whoami` reports no session, so repository topics, the release tag, and registry publication are blocked on credentials.
+- Remote CI on an exact head commit. The workflow exists and runs the same gates locally; the first pushed head is `fd9d471` and its run has not been read back.
+- Live provider qualification was performed on 2026-09-21 through this plugin's client with a synthetic sentence: TypeSafe at `https://api.typesafe.ai/v1/systemone` returned `{"q0": 0.83}` and OpenRouter at `https://openrouter.ai/api/alpha/decisions` returned `{"q0": 0.83}`, one request each, no fallback. Real conversation data was never sent.
+- npm publication: `npm whoami` reports no session, so registry publication is blocked. The GitHub remote and draft release are handled through the stored Git credential.
 
 ## Release content
 

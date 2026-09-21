@@ -49,6 +49,6 @@ This page is part of the rework of the Jev-only compaction failure modes reporte
 ## Deviations and open items
 
 - The upstream production transcript, provider and model identities, and evaluation policy were never supplied. The evaluator reports synthetic transport integration only; it does not reproduce the PR #116246 production comparison. See `docs/evaluation.md`.
-- Live TypeSafe and OpenRouter qualification is not established. Wire contracts are asserted from source and exercised through injected transports.
-- Publication is blocked: `gh auth status` reports no authenticated host and `npm whoami` reports no session, so GitHub topics, the `v1.0.0` release, and npm publication cannot be performed from this machine.
+- Live provider qualification was performed once on 2026-09-21 with a synthetic sentence: TypeSafe returned `{"q0": 0.83}` and OpenRouter `{"q0": 0.83}`, one request each and no fallback. Continuous live qualification against real conversation data is not established.
+- npm publication is blocked because `npm whoami` reports no session. The GitHub remote push and the draft release are handled through the stored Git credential.
 - The requested `1.0.0` changelog heading is present as prepared release content marked unpublished; no stable release is asserted.

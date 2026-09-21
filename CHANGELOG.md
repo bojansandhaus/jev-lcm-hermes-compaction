@@ -84,6 +84,6 @@ Fixes the Jev-only compaction failure modes identified in [NousResearch/hermes-a
 
 ### Status
 
-Release content is complete but unpublished. The production recall-at-budget comparison remains unproven because the upstream transcript and evaluation policy were not supplied. Publication requires an authenticated GitHub host for the repository topic and release tag and an authenticated npm session for registry publication. See [docs/compliance.md](docs/compliance.md) and [docs/verification.md](docs/verification.md).
+Release content is complete but unpublished. The production recall-at-budget comparison remains unproven because the upstream transcript and evaluation policy were not supplied. The GitHub remote, repository topic, and draft release use the stored Git credential. Registry publication still requires an authenticated npm session, which this machine does not have. See [docs/compliance.md](docs/compliance.md) and [docs/verification.md](docs/verification.md).
 
 Licensed under the MIT license.
