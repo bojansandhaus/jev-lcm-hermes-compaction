@@ -7,13 +7,13 @@ ROOT = Path(__file__).parent
 
 
 def test_python_reference_matches_checked_in_parity_golden():
-    actual = run(ROOT / "parity_scenarios.json")
-    expected = json.loads((ROOT / "parity_goldens.json").read_text())
+    actual = run(ROOT / "fixtures" / "parity_scenarios.json")
+    expected = json.loads((ROOT / "fixtures" / "parity_goldens.json").read_text())
     assert actual == expected
 
 
 def test_parity_fixture_covers_required_cases():
-    fixture = json.loads((ROOT / "parity_scenarios.json").read_text())
+    fixture = json.loads((ROOT / "fixtures" / "parity_scenarios.json").read_text())
     assert {c["name"] for c in fixture["calibration"]} == {
         "uniform_low",
         "empty",

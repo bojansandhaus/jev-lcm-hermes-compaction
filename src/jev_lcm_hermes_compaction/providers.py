@@ -1,7 +1,9 @@
 """Two Decisions providers with bounded retries and session-local cooldowns."""
 
+import json
 import logging
 import os
+import re
 import time
 from typing import Any, Callable, Mapping
 from .jev_client import ProviderError, parse_answers, post
@@ -39,12 +41,119 @@ class TypeSafeProvider(JevProvider):
         self.model = settings.jev_model
 
 
+NATIVE_DECISIONS_PATH = "/alpha/decisions"
+CHAT_INSTRUCTIONS = (
+    "You are a retention scorer. For every question id you are given, answer with the "
+    "probability between 0 and 1 that the answer to that question is yes, judging only from "
+    "the state you receive. Reply with JSON only, shaped exactly as "
+    '{"answers": {"<question id>": {"noul": <number>}}}. Add no commentary.'
+)
+_FENCE = re.compile(r"^```[a-zA-Z0-9]*\s*|\s*```$")
+
+
 class OpenRouterProvider(JevProvider):
+    """Two selectable OpenRouter surfaces behind one chain.
+
+    The default is the native Decisions surface, ``/alpha/decisions``, because
+    OpenRouter refuses the Jev model anywhere else. On 2026-09-21 a request to
+    ``/api/v1/chat/completions`` with the configured model returned
+    ``400 ~typesafe/jev-latest is a decisions model and cannot be used with the
+    chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.``
+
+    Setting ``openrouter_endpoint_path`` to any other path selects the chat
+    completions surface, whose request and response are mapped through the
+    adapter in ``chat_request`` and ``decisions_answers``. That surface is what a
+    self-hosted or proxied gateway speaks, and it is what a scoring-capable chat
+    model needs. A body that already carries a Decisions ``answers`` mapping is
+    passed through untouched.
+    """
+
     name = "openrouter"
 
     def __init__(self, settings: Settings):
-        self.url = endpoint(settings.openrouter_base_url, "/alpha/decisions")
+        self.url = endpoint(
+            settings.openrouter_base_url, settings.openrouter_endpoint_path
+        )
         self.model = settings.openrouter_model
+        self.decisions_shaped = (
+            settings.openrouter_endpoint_path != NATIVE_DECISIONS_PATH
+        )
+
+    def score(
+        self,
+        state: Any,
+        questions: dict[str, Any],
+        key: str,
+        timeout: float,
+        transport: Transport,
+    ) -> dict[str, float]:
+        if not self.decisions_shaped:
+            return super().score(state, questions, key, timeout, transport)
+        response = transport(
+            self.url, key, chat_request(self.model, state, questions), timeout
+        )
+        return parse_answers(decisions_answers(response), list(questions))
+
+
+def chat_request(model: str, state: Any, questions: dict[str, Any]) -> dict[str, Any]:
+    """Express a Decisions-shaped scoring request as a chat completion."""
+    return {
+        "model": model,
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": CHAT_INSTRUCTIONS},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {"state": state, "questions": questions},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            },
+        ],
+    }
+
+
+def decisions_answers(response: Any) -> dict[str, Any]:
+    """Normalize a chat completion or a Decisions body onto the Decisions shape.
+
+    A body that already carries a non-empty ``answers`` mapping is passed through,
+    which covers self-hosted or proxied gateways reachable at the configured path.
+    A chat completion is unwrapped from its first choice: fenced JSON is tolerated,
+    scalar answers are wrapped, and a missing, empty, or unparseable answer set is
+    reported as malformed.
+    """
+    if not isinstance(response, dict):
+        raise ProviderError("malformed")
+    passthrough = response.get("answers")
+    if isinstance(passthrough, dict) and passthrough:
+        return {
+            "answers": {
+                question: value if isinstance(value, dict) else {"noul": value}
+                for question, value in passthrough.items()
+            }
+        }
+    choices = response.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise ProviderError("malformed")
+    message = choices[0].get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise ProviderError("malformed")
+    try:
+        parsed = json.loads(_FENCE.sub("", content.strip()))
+    except ValueError as error:
+        raise ProviderError("malformed") from error
+    answers = parsed.get("answers") if isinstance(parsed, dict) else None
+    if not isinstance(answers, dict) or not answers:
+        raise ProviderError("malformed")
+    return {
+        "answers": {
+            question: value if isinstance(value, dict) else {"noul": value}
+            for question, value in answers.items()
+        }
+    }
 
 
 class ProviderChain:

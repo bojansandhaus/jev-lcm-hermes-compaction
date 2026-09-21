@@ -1,6 +1,7 @@
 import importlib.util
 from jev_lcm_hermes_compaction.settings import Settings
 from jev_lcm_hermes_compaction.providers import ProviderChain
+from conftest import synthetic_transport
 
 
 def test_batched_anchors_are_exact_and_oversized_batch_is_explicit():
@@ -13,7 +14,7 @@ def test_batched_anchors_are_exact_and_oversized_batch_is_explicit():
 
     def transport(url, key, payload, timeout):
         requests.append(payload)
-        return {"answers": {q: {"noul": 0.19} for q in payload["questions"]}}
+        return synthetic_transport(0.19)(url, key, payload, timeout)
 
     settings = Settings(min_result_chars=0)
     chain = ProviderChain(settings, {"OPENROUTER_API_KEY": "private"}, transport)

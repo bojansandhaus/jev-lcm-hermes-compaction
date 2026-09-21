@@ -1,4 +1,13 @@
 {
-  "status": "retired",
-  "reason": "Manual active message selection is not plugin evaluation. run_eval generates and compacts its own synthetic transcript."
+  "name": "bundled-synthetic-transcript",
+  "note": "Synthetic transcript assembled by this harness. The PR #116246 transcripts are real session data and are not published, so the production arm here is the host's default condensation path running locally against this fixture, not the PR's private run.",
+  "budget_tokens": 2000,
+  "fresh_tail_count": 2,
+  "filler_turns": 6,
+  "filler_repeat": 1000,
+  "markers": ["deadbeef1234567", "13da88ef01"],
+  "summary": "Synthetic summary intentionally omits exact evidence.",
+  "tool_score": 0.19,
+  "anchor_score": 0.99,
+  "upstream_transcripts_available": false
 }

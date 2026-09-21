@@ -96,7 +96,7 @@ def run(path: Path) -> dict[str, Any]:
 if __name__ == "__main__":
     print(
         json.dumps(
-            run(Path(__file__).with_name("parity_scenarios.json")),
+            run(Path(__file__).parent / "fixtures" / "parity_scenarios.json"),
             sort_keys=True,
             separators=(",", ":"),
         )

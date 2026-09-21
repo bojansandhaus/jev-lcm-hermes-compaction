@@ -1,28 +1,68 @@
-[
-  {
-    "mode": "synthetic-transport-integration",
-    "arm": "lcm",
-    "budget_tokens": 2000,
-    "token_accounting": "LCM count_messages_tokens",
-    "input_tokens": 52636,
-    "active_tokens": 49,
-    "exact_evidence_retention": 0,
-    "raw_retrieval_retention": 1,
-    "freed_ratio": 0.9990690781974314,
-    "model_calls": 1,
-    "production_comparison": false
+{
+  "fixture": {
+    "name": "bundled-synthetic-transcript",
+    "note": "Synthetic transcript assembled by this harness. The PR #116246 transcripts are real session data and are not published, so the production arm here is the host's default condensation path running locally against this fixture, not the PR's private run.",
+    "upstream_transcripts_available": false
   },
-  {
-    "mode": "synthetic-transport-integration",
-    "arm": "jev-lcm",
-    "budget_tokens": 2000,
-    "token_accounting": "LCM count_messages_tokens",
-    "input_tokens": 52636,
-    "active_tokens": 154,
-    "exact_evidence_retention": 1,
-    "raw_retrieval_retention": 1,
-    "freed_ratio": 0.9970742457633559,
-    "model_calls": 1,
-    "production_comparison": false
+  "arms": {
+    "production-equivalent": {
+      "mode": "synthetic-transport-integration",
+      "arm": "production-equivalent",
+      "budget_tokens": 2000,
+      "token_accounting": "LCM count_messages_tokens",
+      "input_tokens": 52655,
+      "active_tokens": 49,
+      "budget_converged": true,
+      "markers_total": 2,
+      "markers_retained": 0,
+      "recall_at_budget": 0.0,
+      "raw_store": true,
+      "raw_retrieval_retention": 1,
+      "freed_ratio": 0.9990694141107207,
+      "model_calls": 1
+    },
+    "jev-only": {
+      "mode": "synthetic-transport-integration",
+      "arm": "jev-only",
+      "budget_tokens": 2000,
+      "token_accounting": "LCM count_messages_tokens",
+      "input_tokens": 52655,
+      "active_tokens": 52749,
+      "budget_converged": false,
+      "markers_total": 2,
+      "markers_retained": 2,
+      "recall_at_budget": 1.0,
+      "raw_store": false,
+      "raw_retrieval_retention": null,
+      "freed_ratio": -0.0017852055835153357,
+      "model_calls": 1
+    },
+    "jev-lcm": {
+      "mode": "synthetic-transport-integration",
+      "arm": "jev-lcm",
+      "budget_tokens": 2000,
+      "token_accounting": "LCM count_messages_tokens",
+      "input_tokens": 52655,
+      "active_tokens": 136,
+      "budget_converged": true,
+      "markers_total": 2,
+      "markers_retained": 2,
+      "recall_at_budget": 1.0,
+      "raw_store": true,
+      "raw_retrieval_retention": 1,
+      "freed_ratio": 0.997417149368531,
+      "model_calls": 1
+    }
+  },
+  "verdict": {
+    "production_arm": "production-equivalent",
+    "compared_against": "local production-equivalent condensation path",
+    "upstream_transcripts_available": false,
+    "upstream_production_run_reproduced": false,
+    "production_recall_at_budget": 0.0,
+    "jev_lcm_recall_at_budget": 1.0,
+    "jev_lcm_meets_or_beats_production": true,
+    "jev_only_budget_converged": false,
+    "jev_only_recall_at_budget": 1.0
   }
-]
+}

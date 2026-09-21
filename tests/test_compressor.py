@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from jev_lcm_hermes_compaction.settings import Settings
+from conftest import synthetic_transport
 
 
 def test_real_lcm_stores_before_scoring_and_preserves_anchor(tmp_path):
@@ -66,7 +67,7 @@ def test_protected_anchor_index_survives_restart_and_enters_assembled_prompt(tmp
     chain = ProviderChain(
         settings,
         {"OPENROUTER_API_KEY": "synthetic"},
-        lambda u, k, p, t: {"answers": {q: {"noul": 0.99} for q in p["questions"]}},
+        synthetic_transport(0.99),
     )
     engine.jev = Prepass(settings, chain)
     engine._jev_compacting = True
@@ -115,7 +116,7 @@ def test_protected_evidence_is_budgeted_by_real_assembly(tmp_path):
         ProviderChain(
             settings,
             {"OPENROUTER_API_KEY": "synthetic"},
-            lambda u, k, p, t: {"answers": {q: {"noul": 0.99} for q in p["questions"]}},
+            synthetic_transport(0.99),
         ),
     )
     engine._jev_compacting = True
@@ -153,7 +154,7 @@ def test_index_write_failure_keeps_volatile_evidence_in_real_assembly(
         ProviderChain(
             settings,
             {"OPENROUTER_API_KEY": "synthetic"},
-            lambda u, k, p, t: {"answers": {q: {"noul": 0.99} for q in p["questions"]}},
+            synthetic_transport(0.99),
         ),
     )
     monkeypatch.setattr(

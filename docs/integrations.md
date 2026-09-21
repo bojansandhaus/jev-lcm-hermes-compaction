@@ -29,7 +29,7 @@ Set `jev_provider: typesafe` and `TYPESAFE_API_KEY`. Pinning fails fast if that 
 
 ## OpenRouter only
 
-Set `jev_provider: openrouter` and `OPENROUTER_API_KEY`. The current adapter uses `https://openrouter.ai/api` plus `/alpha/decisions` and model `~typesafe/jev-latest` by default. This is the repository's adapter configuration, not a claim that every OpenRouter model exposes that contract. Verify the endpoint, model, request shape, and response shape against current provider documentation before sending production data.
+Set `jev_provider: openrouter` and `OPENROUTER_API_KEY`. The default surface is `https://openrouter.ai/api` plus `/alpha/decisions` with model `~typesafe/jev-latest`, which is the native scoring surface and the only one OpenRouter accepts for a decisions model. Set `openrouter_endpoint_path` to a chat path such as `/chat/completions` to use the adapter instead, which is what a self-hosted or proxied gateway needs; the request and response mapping is in `docs/reference.md`. Verify the endpoint, model, request shape, and response shape against current provider documentation before sending production data.
 
 ## Both providers with fallback
 

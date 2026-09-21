@@ -9,6 +9,7 @@ class Settings:
     jev_provider: str = "auto"
     typesafe_base_url: str = "https://api.typesafe.ai/v1"
     openrouter_base_url: str = "https://openrouter.ai/api"
+    openrouter_endpoint_path: str = "/alpha/decisions"
     jev_endpoint_path: str = "/systemone"
     jev_model: str = "jev-latest"
     openrouter_model: str = "~typesafe/jev-latest"
@@ -90,7 +91,7 @@ class Settings:
         if not 1 <= self.jev_calibration_min_samples <= self.jev_calibration_window:
             raise ValueError("invalid calibration window")
         endpoint(self.typesafe_base_url, self.jev_endpoint_path)
-        endpoint(self.openrouter_base_url, "/alpha/decisions")
+        endpoint(self.openrouter_base_url, self.openrouter_endpoint_path)
 
 
 def endpoint(base: str, path: str) -> str:

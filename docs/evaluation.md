@@ -14,22 +14,39 @@ For Hermes, set HERMES_AGENT_PATH to the host source checkout. For DSH, the pinn
 
 ## What executes
 
-The harness creates an isolated synthetic conversation longer than the target budget. It calls the actual compactor and measures the actual assembled context. External summarization and Jev scoring use explicit synthetic transports. The summary intentionally omits a known evidence marker. The ranking-enabled arm can recover that marker through protected assembly.
+The harness creates an isolated synthetic conversation longer than the target budget and runs three arms through real code:
 
-Hermes compares vendored LCM with Jev-LCM. DSH compares its ranking-disabled plugin with its ranking-enabled plugin; this is not a comparison against a separate full Hermes-LCM port. The two host evaluators use different host token accounting and budgets. Do not compare their token totals as if they shared a tokenizer.
+| Arm | What runs | Why it is here |
+|---|---|---|
+| `production-equivalent` | the host's default condensation path, no Jev ranking | stand-in for the production arm, because the PR's own transcripts are not published |
+| `jev-only` | Jev ranking with every user and assistant turn left verbatim and no summary path | the arm PR #116246 rejected, reproduced so its text floor is measurable |
+| `jev-lcm` | Jev ranking before LCM condensation, the shipped design | the design under test |
+
+Jev scoring runs through an explicit synthetic transport that returns the anchor band high and the tool band low, mirroring the distribution the upstream scorecard measured. Summarization runs through an explicit synthetic transport whose text omits the known markers, so retention is decided by assembly, not by the summary. Nothing leaves the machine.
 
 Raw retrieval uses the persisted store: Hermes invokes lcm_grep and lcm_expand; DSH calls its store grep and expand methods. The score requires recovery of the exact marker. It never scans only the original input to claim retrieval success.
 
 ## Metrics and checks
 
-- input_tokens and active_tokens use each host's context accounting.
-- exact_evidence_retention is literal marker presence in assembled context, not model answer accuracy.
-- raw_retrieval_retention is marker recovery through persisted retrieval.
-- freed_ratio is the measured fraction of input context removed.
-- Nonconvergent budgets and invalid inputs fail explicitly.
-- Tests change the synthetic summary content and check that retained evidence changes.
+- `input_tokens` and `active_tokens` use the host's context accounting.
+- `markers_retained` counts fixture markers present verbatim in the assembled context, and `recall_at_budget` is that count over the marker total.
+- `budget_converged` reports whether the assembled context fits the target budget.
+- `raw_retrieval_retention` is marker recovery through persisted retrieval. It is null for the `jev-only` arm, which owns no store.
+- `freed_ratio` is the measured fraction of input context removed. A negative value means the arm grew the prompt.
+- Invalid budgets, unknown arms, and incomplete fixtures raise rather than producing numbers.
+- Tests change the synthetic summary content and check that retained evidence changes with it.
 
-The latest local output is in evaluation/results.json. It records production_comparison=false and synthetic-transport-integration mode. An earlier manual-message-selection evaluator was rejected and replaced; none of its figures is accepted as plugin performance.
+## Latest measured output
+
+From the bundled fixture `bundled-synthetic-transcript`, measured 2026-09-21:
+
+| Arm | Input tokens | Active tokens | Budget met | Markers kept | Recall at budget | Raw retrieval |
+|---|---:|---:|---|---:|---:|---:|
+| `production-equivalent` | 52655 | 49 | yes | 0 of 2 | 0.00 | 1 |
+| `jev-only` | 52655 | 52749 | no | 2 of 2 | 1.00 | not applicable |
+| `jev-lcm` | 52655 | 136 | yes | 2 of 2 | 1.00 | 1 |
+
+The `verdict` block in `evaluation/results.json` carries the comparison this harness is able to make: `production_recall_at_budget` 0.0 against `jev_lcm_recall_at_budget` 1.0, `jev_lcm_meets_or_beats_production` true, `jev_only_budget_converged` false. It also carries `upstream_transcripts_available: false` and `upstream_production_run_reproduced: false`, because the production arm here is a local stand-in rather than the published run. An earlier manual-message-selection evaluator was rejected and replaced; none of its figures is accepted as plugin performance.
 
 ## Upstream production baseline
 

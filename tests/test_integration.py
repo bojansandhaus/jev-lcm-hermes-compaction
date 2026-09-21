@@ -4,6 +4,7 @@ from jev_lcm_hermes_compaction.compressor import JevLCMContextCompressor
 from jev_lcm_hermes_compaction._vendor.lcm.config import LCMConfig
 from jev_lcm_hermes_compaction._vendor.lcm import engine as upstream
 from jev_lcm_hermes_compaction.settings import Settings
+from conftest import synthetic_transport
 
 
 def test_real_compaction_and_recall_with_failed_jev(tmp_path, monkeypatch):
@@ -103,7 +104,7 @@ def test_541_unscored_raw_recovery(tmp_path):
         ProviderChain(
             settings,
             {"OPENROUTER_API_KEY": "synthetic"},
-            lambda u, k, p, t: {"answers": {q: {"noul": 0.19} for q in p["questions"]}},
+            synthetic_transport(0.19),
         ),
     )
     engine._jev_compacting = True

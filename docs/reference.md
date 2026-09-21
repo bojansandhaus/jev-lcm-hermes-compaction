@@ -18,7 +18,8 @@ Defaults below are read from `settings.py`.
 | `TYPESAFE_API_KEY` | unset | TypeSafe credential, supplied through the environment or secret manager. |
 | `OPENROUTER_API_KEY` | unset | OpenRouter credential, supplied through the environment or secret manager. |
 | `typesafe_base_url` | `https://api.typesafe.ai/v1` | TypeSafe base URL. |
-| `openrouter_base_url` | `https://openrouter.ai/api` | OpenRouter base URL used by the current adapter. |
+| `openrouter_base_url` | `https://openrouter.ai/api` | OpenRouter base URL. |
+| `openrouter_endpoint_path` | `/alpha/decisions` | OpenRouter path. Any other value selects the chat completions adapter. |
 | `jev_endpoint_path` | `/systemone` | TypeSafe path appended to its base URL. |
 | `jev_model` | `jev-latest` | TypeSafe model identifier. |
 | `openrouter_model` | `~typesafe/jev-latest` | Model identifier sent by the current OpenRouter adapter. Verify model availability before use. |
@@ -80,7 +81,20 @@ The batcher flushes on the turn window, urgent context pressure, shutdown, and `
 
 ## Providers and wire boundaries
 
-The provider abstraction sends a Decisions-shaped payload containing `model`, `state`, and `questions`. TypeSafe uses the configured TypeSafe base plus `jev_endpoint_path`. The current OpenRouter adapter uses `openrouter_base_url` plus `/alpha/decisions`, with the configured OpenRouter model. Verify the endpoint and model against the provider's current documentation before deployment; this repository's deterministic tests do not validate a live remote contract.
+The provider abstraction sends a Decisions-shaped payload containing `model`, `state`, and `questions`. TypeSafe uses the configured TypeSafe base plus `jev_endpoint_path`. OpenRouter uses `openrouter_base_url` plus `openrouter_endpoint_path`, with the configured OpenRouter model.
+
+### OpenRouter surfaces
+
+`openrouter_endpoint_path` selects the surface. Two are supported.
+
+| Path | Request sent | Response accepted | When to use it |
+|---|---|---|---|
+| `/alpha/decisions` (default) | Decisions body: `model`, `state`, `questions` | Decisions body: `answers` mapping each question id to `noul` | OpenRouter's native scoring surface. This is the only surface that accepts the Jev decisions model. |
+| any other path, for example `/chat/completions` | Chat body: `model`, `temperature`, `response_format`, one system instruction, and one user message holding `state` and `questions` | Chat body whose first choice content is JSON shaped as `answers` | Self-hosted or proxied gateways, and scoring-capable chat models. |
+
+The chat adapter tolerates fenced JSON and wraps scalar answers, and it passes a body that already carries a non-empty `answers` mapping straight through. A missing, empty, or unparseable answer set raises `malformed`, which is not a fallback trigger, so the request fails loudly rather than scoring blind.
+
+On 2026-09-21 OpenRouter answered a chat completions request for the configured model with `400 ~typesafe/jev-latest is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.` The shipped default therefore points at the native surface, and the chat adapter is selectable rather than default. Response parity between the two surfaces is asserted in `tests/test_providers.py`.
 
 Fallback is session-local. A matching transport, timeout, HTTP status, or provider parse failure can cool down the primary and try the next available provider. When both providers fail, LCM proceeds without Jev. Malformed Decisions output is an error, never a source of fabricated scores. Cooldown expiry makes the provider eligible again. `jev_provider_fallback_count` counts provider changes, not HTTP attempts.
 

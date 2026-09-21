@@ -105,7 +105,7 @@ A directory install works as well: place `plugin.yaml`, `plugin.py`, and `__init
 
 | Group | Important settings |
 |---|---|
-| Provider | `jev_provider`, `typesafe_base_url`, `openrouter_base_url`, `jev_endpoint_path`, `jev_model`, `openrouter_model` |
+| Provider | `jev_provider`, `typesafe_base_url`, `openrouter_base_url`, `openrouter_endpoint_path`, `jev_endpoint_path`, `jev_model`, `openrouter_model` |
 | Fallback | `jev_fallback_enabled`, `jev_fallback_order`, `jev_fallback_on`, `jev_fallback_cooldown_s`, `jev_fallback_max_retries` |
 | Calibration | `keep_threshold`, `keep_threshold_max`, `min_keep_rate`, `jev_calibration_enabled`, `jev_calibration_window`, `jev_calibration_min_samples`, `conservative` |
 | Anchors | `jev_anchor_patterns`, `jev_anchor_protection_enabled`, `hint_budget_tokens` |
@@ -128,7 +128,9 @@ The design keeps three boundaries visible: LCM owns evidence, LCM compresses tex
 
 ## Is it compatible with my host?
 
-The package declares Python >=3.11. Hermes and hermes-lcm compatibility depends on the host seam in use. The source includes a vendored LCM integration, but a clean-profile installation and assembled-prompt proof are still required. Verify the installed Hermes version before enabling it.
+Supported: Hermes 0.21.x or later, hermes-lcm 0.20 or later, any System One compatible endpoint, and OpenRouter models that return Decisions shaped answers. The package declares Python >=3.11 and vendors its LCM integration, so it assembles context without a separate hermes-lcm install. The CI workflow pins host revision `52d203d0` and the vendored LCM snapshot `8d1b1e6d` so the tests are reproducible.
+
+Executed on 2026-09-21 on a clean profile: the built wheel installed, the host discovered the plugin, and the engine ran three times, with `TYPESAFE_API_KEY` alone, with `OPENROUTER_API_KEY` alone, and with both keys. Each run loaded the engine, stored raw rows, and answered a marker query. The assembled-prompt proof is a test rather than a claim: `tests/test_compressor.py` asserts that a delegation id lifted from assistant text appears verbatim in the assembled context and survives a restart. `docs/verification.md` carries the commands and the observed output.
 
 ## Who created the ideas behind it?
 
