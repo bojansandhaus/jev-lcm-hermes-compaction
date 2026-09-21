@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jev-lcm-hermes-compaction"
+version = "1.0.0rc1"
+description = "Jev ranking before lossless Hermes context condensation"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "Bojan Sandhaus"}]
+dependencies = ["PyYAML>=6", "tiktoken>=0.7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5", "mypy>=1.10", "black>=24", "types-PyYAML", "build"]
+
+[project.scripts]
+jev-lcm = "jev_lcm_hermes_compaction.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"jev_lcm_hermes_compaction._vendor.lcm" = ["LICENSE", "skills/**/*.md", "plugin.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["jev_lcm_hermes_compaction"]
+omit = ["*/_vendor/*"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+follow_imports = "silent"
+exclude = ["_vendor"]
+
+[tool.black]
+extend-exclude = "_vendor"

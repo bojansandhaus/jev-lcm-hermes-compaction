@@ -1,0 +1,1 @@
+from jev_lcm_hermes_compaction.plugin import register
