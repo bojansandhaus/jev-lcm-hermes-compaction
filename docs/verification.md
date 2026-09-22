@@ -21,13 +21,13 @@ Hermes PR #116246 motivates the acceptance gates: compaction must retain useful 
 
 ## Release content
 
-The `1.0.0` changelog section and [RELEASE_NOTES_v1.0.0.md](../RELEASE_NOTES_v1.0.0.md) contain the requested release content and are marked prepared and unpublished. No stable release is asserted.
+The `1.0.0` changelog section and [RELEASE_NOTES_v1.0.0.md](../RELEASE_NOTES_v1.0.0.md) contain the requested release content. No stable release is asserted.
 
 ## Publication record
 
 - Continuous integration, workflow `Tests`, passes on the default branch: the runs for the pushed rework commits, including `35637318780`, were read back green.
 - Repository topics include `lcm`, `compaction`, `context-management`, and `jev`; the DSH repository also carries the required `dsh-plugin` discovery topic.
-- The `v1.0.0` release exists as a draft and is marked prerelease, with content taken from `RELEASE_NOTES_v1.0.0.md`. A draft release is not a published release and the tag does not exist until it is published.
+- The release candidate is published as a GitHub prerelease tagged `v1.0.0-rc.1` at the commit whose CI run passed, with the built artifact `jev_lcm_hermes_compaction-1.0.0rc1-py3-none-any.whl` (731163 bytes) attached and verified downloadable. Registry publication has not happened, so no PyPI availability is claimed, and the `v1.0.0` tag is still unused.
 - npm publication is still blocked: `npm whoami` reports no session on this machine, so `npm publish` cannot run until an npm login exists. For this distribution the remaining command is `npm publish --access public`.
 
 - OpenRouter surface check on 2026-09-21 through the plugin's own provider chain with synthetic text: the shipped default resolved to `https://openrouter.ai/api/alpha/decisions` and answered 4 of 4 calls, with `a:anchor_keep` between 0.88 and 0.89 and `a:recovery` between 0.49 and 0.52. A chat completions request for the same model was refused by the provider with `400 ~typesafe/jev-latest is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.` The chat surface remains selectable through `openrouter_endpoint_path`, and its request and response mapping is covered by parity tests that do not need a live call.
