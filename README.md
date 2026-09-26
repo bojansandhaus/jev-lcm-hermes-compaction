@@ -25,6 +25,7 @@ The PR reported that a fixed `keep_threshold: 0.5` dropped 100% of 851 scored ca
 - Uses calibrated Jev thresholding instead of the rejected fixed `0.5` default.
 - Batches candidates and marks overflow `jev_unscored` instead of inventing a decision.
 - Accepts TypeSafe, OpenRouter, or both with automatic fallback.
+- Runs the same payload through a local Laya server instead, alone or with the hosted APIs as a fallback hop behind it.
 - Keeps `lcm_grep` and `lcm_expand` recovery surfaces available.
 
 ## How does the pipeline work?
@@ -56,9 +57,11 @@ The shrink ladder starts with full state, then trims tool inputs and result bodi
 
 Yes, subject to the adapter contract documented in [`docs/reference.md`](docs/reference.md). A TypeSafe-only setup pins `jev_provider: typesafe`. An OpenRouter-only setup pins `jev_provider: openrouter`. With `auto`, both keys follow `jev_fallback_order`, defaulting to TypeSafe then OpenRouter. A fallback emits a sanitized line such as `jev_provider_fallback from=typesafe to=openrouter reason=429`. Key values are never printed.
 
-There is also a way to run with no hosted service at all, and it is an alternative rather than an addition. You either point Jev at TypeSafe or OpenRouter with a key, or you run Laya locally with no key. `jev_provider: laya` scores through a `laya-serve` process on your own machine, configured with `laya_base_url`, `laya_endpoint_path`, and `laya_model` in place of a credential. Laya is not a hosted Jev endpoint, it is a separate model that answers the same `/v1/systemone` contract, so selecting it replaces the hosted route instead of extending it. See the [Laya FAQ](#can-i-run-it-locally-with-laya-instead-of-a-hosted-provider) for the measured limits of the base checkpoint.
+There are three routes, and each is a separate opt-in. Jev runs over a hosted API key, Laya runs locally with no key, or Laya runs locally with the hosted APIs behind it as a fallback. `jev_provider: laya` scores through a `laya-serve` process on your own machine, configured with `laya_base_url`, `laya_endpoint_path`, and `laya_model` in place of a credential, and it is the only route that never leaves the machine. `jev_provider: laya_then_hosted` puts that same local server first and then falls through to every hosted provider in `jev_fallback_order` that has a key. Laya is not a hosted Jev endpoint, it is a separate model that answers the same `/v1/systemone` contract. See the [Laya FAQ](#can-i-run-it-locally-with-laya-instead-of-a-hosted-provider) for the measured limits of the base checkpoint.
 
-The same engine therefore runs Jev for Hermes over a TypeSafe key, over an OpenRouter key, or over a Laya server on your own machine, with fallback inside the hosted pair. Jev threshold calibration is automatic from observed scores. Jev provider fallback covers configured transport, timeout, authentication, rate-limit, and server failures. LCM with Jev scoring changes which stale evidence stays visible; LCM continues to own storage and recall.
+**The combined mode is the one Laya route that leaves your machine.** In `laya_then_hosted`, a local attempt that fails a transport, timeout, `401`, `403`, `429`, or `5xx` response sends the scored state to the hosted API as the next hop. That is the point of the mode, so it has to be named explicitly: `laya` alone sends nothing, `auto` still never selects the local route, and `jev_fallback_order` still rejects `laya`. Selecting `laya_then_hosted` with no hosted key at all is a load-time error that names the missing variables, because the mode promises a fallback that would not otherwise exist.
+
+The same engine therefore runs Jev for Hermes over a TypeSafe key, over an OpenRouter key, or over a Laya server on your own machine, with fallback inside the hosted pair or from the local route into it. Jev threshold calibration is automatic from observed scores. Jev provider fallback covers configured transport, timeout, authentication, rate-limit, and server failures. LCM with Jev scoring changes which stale evidence stays visible; LCM continues to own storage and recall.
 
 ## Jev-LCM, Jev-alone, and LCM-alone
 
@@ -115,7 +118,7 @@ A directory install works as well: place `plugin.yaml`, `plugin.py`, and `__init
 | Batching | `jev_batch_window_turns`, `jev_max_candidates_per_batch`, `jev_urgent_context_ratio` |
 | Shaping | `max_state_tokens`, `max_request_tokens`, `truncate_head_chars`, `min_result_chars`, `request_timeout_s` |
 
-The complete defaults table is in [`docs/reference.md`](docs/reference.md). The settings validator rejects unsafe endpoint paths and non-local plain HTTP.
+The complete defaults table is in [`docs/reference.md`](docs/reference.md). `jev_provider` accepts `auto`, `typesafe`, `openrouter`, `laya`, and `laya_then_hosted`; the first four keep the behaviour described above and the last one is the explicit local-first route with the hosted APIs behind it. The settings validator rejects unsafe endpoint paths and non-local plain HTTP.
 
 ## Which commands and tools are available?
 
@@ -178,13 +181,29 @@ jev_lcm:
   request_timeout_s: 120
 ```
 
-`laya_base_url` defaults to `http://127.0.0.1:8000`, `laya_endpoint_path` to `/v1/systemone`, and `laya_model` to `convaiinnovations/laya`, which asks the server to pick a checkpoint from the script and language of the state; `english`, `multilingual`, and `typed-decisions` name a checkpoint directly. `LAYA_API_KEY` is forwarded only when the server was started with its own bearer check. The local route has no key to find, so `auto` never selects it, and `jev_fallback_order` accepts only the hosted names. Pinning `laya` gives that profile exactly one provider.
+`laya_base_url` defaults to `http://127.0.0.1:8000`, `laya_endpoint_path` to `/v1/systemone`, and `laya_model` to `convaiinnovations/laya`, which asks the server to pick a checkpoint from the script and language of the state; `english`, `multilingual`, and `typed-decisions` name a checkpoint directly. `LAYA_API_KEY` is forwarded only when the server was started with its own bearer check. The local route has no key to find, so `auto` never selects it, and `jev_fallback_order` accepts only the hosted names. Pinning `laya` gives that profile exactly one provider, and nothing it scores leaves the machine. The only Laya route that can reach a hosted API is `laya_then_hosted`, which has to be named explicitly.
 
 Two measured limits come from a live run against `laya-serve` on 2026-09-22, base English checkpoint, CPU:
 
 - **Quality on these questions is not established.** Across four clearly-keep spans and four clearly-droppable spans, scored with the production retention questions, the keep group averaged `0.6516` and the drop group `0.6502`, a gap of `0.0014`. Calibration then set `0.40`, its `keep_threshold_max` cap, and all 16 answers were retained. The failure direction is safe: the local path keeps everything rather than dropping evidence, so compaction frees nothing until you recalibrate on your own data or use a checkpoint tuned for retention. Treat the local route as an offline mechanism first and a scoring improvement only after you have measured it.
 - **Cost is per question row.** The same 16-question request took `25.6s`, about `1.6s` per row, which is past the default `request_timeout_s` of `30`. Raise `request_timeout_s` and lower `jev_max_candidates_per_batch` for a CPU-only server, or load the model once on a GPU.
 - **The default port is shared ground.** `laya_base_url` points at `http://127.0.0.1:8000`, which many self-hosted services also claim. If something else already listens there, the plugin reaches that service and reports an error instead of a score; a `404` with the body `{"detail":"Not Found"}` is how that looks. Start the server with `LAYA_PORT=<port>` and set `laya_base_url` to that same port.
+
+### Can Laya fall back to a hosted provider?
+
+Yes, with `jev_provider: laya_then_hosted`. Laya answers first, and a transport error, timeout, `401`, `403`, `429`, or `5xx` from the local server moves the request to the providers in `jev_fallback_order` that have a key, defaulting to TypeSafe then OpenRouter. The failure list is the same one the hosted pair already uses, and a failure that is not on it, such as the `404` from a shared default port, stops at the local route instead of escalating.
+
+```yaml
+context:
+  engine: jev-lcm
+jev_lcm:
+  jev_provider: laya_then_hosted
+  laya_base_url: http://127.0.0.1:8123
+  laya_model: english
+  request_timeout_s: 120
+```
+
+**This mode sends your state off the machine when the local server fails.** A local transport error, timeout, `401`, `403`, `429`, or `5xx` makes the hosted API the next hop, which is the reason the mode has to be named explicitly rather than inferred. Plain `laya` never leaves the machine, `auto` still never selects a Laya route, and `jev_fallback_order` still rejects `laya`, so a local hop can only lead a chain when this mode names it. Selecting `laya_then_hosted` with no hosted key raises at load and names the missing variables, so a profile cannot silently degrade to local-only.
 
 ### What happens if TypeSafe is rate-limited?
 A matching `429` can trigger fallback, cooldown, and a sanitized diagnostic when OpenRouter is available.

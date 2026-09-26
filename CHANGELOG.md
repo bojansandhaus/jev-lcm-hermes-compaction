@@ -35,6 +35,30 @@ Tamara Tran contributed the upstream state-shaping and two-question scoring desi
 
 The project uses the MIT license. See [third party notices](THIRD_PARTY_NOTICES.md) for licenses and specific reuse.
 
+## [1.0.0-rc.3] - 2026-09-26
+
+Adds the third provider route: Laya first with the hosted Jev providers behind it. Jev runs over a hosted API key, Laya runs locally, or Laya runs locally with the hosted APIs as fallback. `jev_provider: laya_then_hosted` is an explicit opt-in, so an installation that sets `auto`, `typesafe`, `openrouter`, or `laya` behaves exactly as it did in `1.0.0-rc.2`.
+
+### Added
+
+- `laya_then_hosted` provider mode. The chain is Laya first, then every provider in `jev_fallback_order` that has a key, so the default order is `laya`, `typesafe`, `openrouter`. Existing fallback triggers, cooldown, and retry settings apply unchanged: a transport error, timeout, `401`, `403`, `429`, or `5xx` from the local server moves the request to the hosted hop.
+- Fail-fast validation. Selecting the mode with no hosted key at all raises `ValueError` at load and names the missing environment variables, because the mode promises a fallback that would not otherwise exist. `LAYA_API_KEY` alone does not satisfy it.
+- `tests/test_laya_then_hosted.py`: order construction with both keys, one key, and none; honouring of a narrowed or reordered `jev_fallback_order`; the local-first hop; fallback on each configured trigger; the non-triggering `http_error` that stays local; cooldown and recovery across the three-hop chain; secret-safe diagnostics; and the invariants that `laya` stays a single provider, `auto` never includes a Laya route, and `jev_fallback_order` still rejects `laya`.
+- `evaluation/live_laya_then_hosted.py`, the live probe used for this release, which prints the built order and the hop that answered.
+
+### Changed
+
+- `jev_provider` accepts `laya_then_hosted` in settings validation. Nothing else about provider selection changes.
+- `__version__` in the package now tracks the release candidate instead of staying at `1.0.0`.
+
+### Privacy
+
+In `laya_then_hosted` a failed local attempt sends the scored state to a hosted API. That is the point of the mode, so the README and `docs/reference.md` state it next to the plain `laya` mode, which never leaves the machine. `auto` still never selects a Laya route, and a local hop leads a chain only when this mode names it.
+
+### Verification status
+
+The local hop is verified live against the `laya-serve` running on `http://127.0.0.1:8123`. The hosted hop is covered by unit tests with an injected transport and by no live hosted call: no hosted API key exists on this machine. No live hosted verification is claimed.
+
 ## [1.0.0-rc.2] - 2026-09-22
 
 Adds a local route for Jev scoring: instead of calling TypeSafe or OpenRouter with a key, point the engine at a Laya server on your own machine. The hosted pair remains the default and an existing configuration keeps behaving exactly as before.

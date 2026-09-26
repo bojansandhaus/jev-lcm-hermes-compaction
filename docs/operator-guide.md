@@ -43,6 +43,8 @@ jev_lcm:
 
 Set one or both of `TYPESAFE_API_KEY` and `OPENROUTER_API_KEY`. Auto mode with both keys uses the configured order and can fall back. A pinned provider with a missing key is a load-time error. With neither key, Jev is disabled and LCM continues without provider traffic.
 
+Three routes are available: `auto` runs Jev over the hosted keys, `laya` runs Laya locally and nothing leaves the machine, and `laya_then_hosted` runs Laya first with the keyed hosted providers behind it. The combined mode needs at least one hosted key and raises at load, naming the variables it needs, without one. In that mode a local failure on a configured trigger sends the state to a hosted API, so enable it only where that consequence is acceptable.
+
 ## Reset semantics
 
 Run `/reset` after changing the engine, provider selection, endpoint, or scoring settings. The batcher flushes on reset, and the new turn begins with the new configuration. Reset does not erase the raw SQLite archive. Treat archive deletion as a separate, deliberate recovery operation.

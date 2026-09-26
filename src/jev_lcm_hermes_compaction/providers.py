@@ -202,6 +202,17 @@ class ProviderChain:
             # Laya runs locally in place of the hosted Jev providers, so the
             # local mode has no chain to fall through and no credential to find.
             self.order = ["laya"]
+        elif settings.jev_provider == "laya_then_hosted":
+            # Laya leads and the keyed hosted providers follow. This mode exists
+            # to provide the fallback, so selecting it without any hosted key is
+            # a load-time error rather than a quietly local-only profile.
+            hosted = [p for p in settings.jev_fallback_order if self._keys[p]]
+            if not hosted:
+                raise ValueError(
+                    "laya_then_hosted needs a hosted fallback key: "
+                    + ", ".join(ENV[p] for p in settings.jev_fallback_order)
+                )
+            self.order = ["laya"] + hosted
         elif settings.jev_provider == "auto":
             # The hosted chain contains only providers with a usable key. The
             # keyless local provider is never selected on its own initiative.

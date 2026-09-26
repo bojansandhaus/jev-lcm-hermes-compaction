@@ -14,7 +14,7 @@ Defaults below are read from `settings.py`.
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| `jev_provider` | `auto` | `auto`, `typesafe`, `openrouter`, or `laya`. |
+| `jev_provider` | `auto` | `auto`, `typesafe`, `openrouter`, `laya`, or `laya_then_hosted` (Laya first, then the keyed hosted providers). |
 | `TYPESAFE_API_KEY` | unset | TypeSafe credential, supplied through the environment or secret manager. |
 | `OPENROUTER_API_KEY` | unset | OpenRouter credential, supplied through the environment or secret manager. |
 | `LAYA_API_KEY` | unset | Optional bearer for a local `laya-serve` started with `LAYA_API_KEY`. The local provider needs no credential. |
@@ -28,7 +28,7 @@ Defaults below are read from `settings.py`.
 | `laya_endpoint_path` | `/v1/systemone` | Local server path, which is the Decisions protocol `laya-serve` publishes. |
 | `laya_model` | `convaiinnovations/laya` | Laya checkpoint. `english`, `multilingual`, and `typed-decisions` name a checkpoint; any other value routes by script and language. |
 | `jev_fallback_enabled` | `true` | Permit fallback to the next configured provider. |
-| `jev_fallback_order` | `typesafe, openrouter` | Ordered preference inside the hosted pair. The local route is not a chain member. |
+| `jev_fallback_order` | `typesafe, openrouter` | Ordered preference inside the hosted pair. The local route is not a chain member; `laya_then_hosted` places it in front of this order. |
 | `jev_fallback_on` | transport, timeout, 401, 403, 429, 5xx | Errors eligible for fallback. |
 | `jev_fallback_cooldown_s` | `60` | Session-local cooldown after a failed provider. |
 | `jev_fallback_max_retries` | `1` | Retries for the final available provider. |
@@ -52,7 +52,7 @@ Defaults below are read from `settings.py`.
 | `hint_budget_tokens` | `4000` | Bound for injected Jev hints. |
 | `lcm_*` | host defaults | LCM settings remain available; do not assume vendor defaults match a host release. |
 
-Provider keys are never included in diagnostics. An explicitly pinned provider fails at load when its key is absent. In `auto` mode, providers with absent keys are filtered out. With both absent, Jev is disabled and LCM continues without a Jev request.
+Provider keys are never included in diagnostics. An explicitly pinned provider fails at load when its key is absent. In `auto` mode, providers with absent keys are filtered out. With both absent, Jev is disabled and LCM continues without a Jev request. `laya_then_hosted` fails at load when no hosted key is present and names the missing variables, because that mode promises a hosted fallback that could not otherwise exist.
 
 ## Decision model
 
@@ -111,13 +111,29 @@ On 2026-09-21 OpenRouter answered a chat completions request for the configured 
 | `laya_model` | `convaiinnovations/laya` (route by script and language), `english`, `multilingual`, or `typed-decisions`. |
 | `LAYA_API_KEY` | Sent only when the server was started with `LAYA_API_KEY`. Diagnostics report the variable name, never its value. |
 
-The local route replaces the hosted pair instead of joining it. `jev_provider: laya` builds a chain of exactly one provider, `auto` never selects it, and `jev_fallback_order` accepts only `typesafe` and `openrouter`. The wire client omits the `Authorization` header entirely for an empty key, so a server started without `LAYA_API_KEY` accepts the request unchanged.
+The local route replaces the hosted pair instead of joining it. `jev_provider: laya` builds a chain of exactly one provider, `auto` never selects it, and `jev_fallback_order` accepts only `typesafe` and `openrouter`. `laya_then_hosted` is the separate explicit mode that joins the two, and it is described in the next subsection. The wire client omits the `Authorization` header entirely for an empty key, so a server started without `LAYA_API_KEY` accepts the request unchanged.
 
 Two limits were measured against a real `laya-serve` on 2026-09-22 with the base English checkpoint on CPU, using this repository's own retention questions:
 
 1. **Separation between keep and discard is not established.** Four obviously-keep spans and four obviously-droppable spans scored `0.6516` and `0.6502` on average, a gap of `0.0014`, and `JevThresholdCalibrator` then reported `0.40`, its `keep_threshold_max` ceiling, retaining all 16 answers. The local route therefore fails safe: it keeps evidence rather than dropping it, and frees nothing until thresholds are recalibrated on labelled data or a retention-tuned checkpoint is used.
 2. **Latency scales with question rows.** Those 16 questions took `25.6s`, roughly `1.6s` per row, beyond the default `request_timeout_s` of `30`. Raise `request_timeout_s` and lower `jev_max_candidates_per_batch`, or serve from a GPU.
 3. **The default port is shared ground.** `laya_base_url` defaults to `http://127.0.0.1:8000`, and any other service bound to 8000 answers the request instead of Laya. A `404` carrying `{"detail": "Not Found"}` is the symptom, and it surfaces as `http_error`, which is not a fallback trigger. Start the server with `LAYA_PORT` and point `laya_base_url` at the port you actually bound.
+
+### Laya with the hosted providers as a fallback
+
+`jev_provider: laya_then_hosted` is the explicit opt-in that puts both routes in one chain. Laya leads, and the hosted providers named by `jev_fallback_order` that have a usable key follow it, so the default order is `laya`, `typesafe`, `openrouter`. The chain is built from whichever keys are present: with only `OPENROUTER_API_KEY` the order is `laya`, `openrouter`, and a reversed `jev_fallback_order` reverses the hosted hop. The fallback triggers, cooldown, and retry settings are the same objects the hosted pair already uses, so nothing about the trigger set changes.
+
+| Mode | Resulting chain | Leaves the machine |
+|---|---|---|
+| `laya` | `laya` | Never. |
+| `laya_then_hosted` | `laya`, then the keyed `jev_fallback_order` members | On a trigger listed in `jev_fallback_on`: transport, timeout, `401`, `403`, `429`, or `5xx`. |
+| `auto` | the keyed `jev_fallback_order` members | Yes, by design. It never selects a Laya route. |
+
+**Privacy consequence, stated plainly.** In `laya_then_hosted`, a local attempt that fails a transport, timeout, `401`, `403`, `429`, or `5xx` response sends the scored state to a hosted API. That is the point of the mode, and it is why the mode is explicit rather than selected automatically. The plain `laya` mode never leaves the machine. A local failure that is not on the trigger list, such as the `404` from a shared default port or a malformed answer, stops at the local route instead of escalating. Selecting `laya_then_hosted` with no hosted key at all raises `ValueError` at load and names the missing environment variables, because the mode promises a fallback that would not otherwise exist; `LAYA_API_KEY` alone does not satisfy it.
+
+Diagnostics report the mode's real chain through `chain.diagnostics()` and `jev_providers`: `order` carries the full `laya`, `typesafe`, `openrouter` sequence, `last_provider` names the hop that answered, `last_errors` names the hop that failed and its reason, and `keys_present` reports variable names only, never values.
+
+The hosted leg of this mode is covered by `tests/test_laya_then_hosted.py` with an injected transport that fails on the local URL and records the hosted attempt. No live hosted call is part of this release: no hosted API key exists on the machine that built it. The local leg is exercised live by `evaluation/live_laya_then_hosted.py`, which prints the built order and the hop that answered.
 
 Fallback is session-local. A matching transport, timeout, HTTP status, or provider parse failure can cool down the primary and try the next available provider. When both providers fail, LCM proceeds without Jev. Malformed Decisions output is an error, never a source of fabricated scores. Cooldown expiry makes the provider eligible again. `jev_provider_fallback_count` counts provider changes, not HTTP attempts.
 

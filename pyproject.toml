@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jev-lcm-hermes-compaction"
-version = "1.0.0rc2"
+version = "1.0.0rc3"
 description = "Jev ranking before lossless Hermes context condensation"
 requires-python = ">=3.11"
 license = "MIT"

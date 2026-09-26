@@ -6,7 +6,7 @@ This is a release candidate, not a production-certified replacement.
 
 Tests use synthetic text and scores. HTTP tests use loopback servers. They do not measure provider quality, real billing, or comparative performance against private transcripts.
 
-Selected conversation text is sent to the configured provider. This is not an automatic secret-redaction system. The local raw archive is not encrypted by this package. Use a private data directory.
+Selected conversation text is sent to the configured provider. This is not an automatic secret-redaction system. The local raw archive is not encrypted by this package. Use a private data directory. In `laya_then_hosted`, a local attempt that fails a configured trigger sends the state to a hosted provider as well; `laya` alone is the only route that stays on the machine.
 
 Hermes uses bundled upstream LCM. DSH uses its native BasicCompactionEngine with a separate SQLite archive and summary links, not a full TypeScript port of Hermes LCM.
 

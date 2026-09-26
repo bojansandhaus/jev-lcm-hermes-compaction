@@ -56,7 +56,13 @@ class Settings:
     hint_budget_tokens: int = 4000
 
     def __post_init__(self) -> None:
-        if self.jev_provider not in ("auto", "typesafe", "openrouter", "laya"):
+        if self.jev_provider not in (
+            "auto",
+            "typesafe",
+            "openrouter",
+            "laya",
+            "laya_then_hosted",
+        ):
             raise ValueError("invalid jev_provider")
         if (
             not self.jev_fallback_order
