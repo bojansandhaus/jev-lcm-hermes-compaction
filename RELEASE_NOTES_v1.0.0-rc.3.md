@@ -1,10 +1,10 @@
-## [1.0.0-rc.3] - 2026-09-26 (prepared; the release and tag are cut by the maintainer after verification)
+## [1.0.0-rc.3] - 2026-09-26 (published)
 
 Jev-LCM Compaction Plugin for Hermes: Jev ranks stale evidence before Lossless Context Management condenses conversation history.
 
 This candidate adds the third way to run Jev: Laya locally with the hosted APIs behind it as a fallback. The engine now runs Jev over a hosted API key, Laya locally, or Laya locally with the hosted APIs as fallback. The new route is an explicit opt-in, `jev_provider: laya_then_hosted`, so an installation that sets `auto`, `typesafe`, `openrouter`, or `laya` behaves exactly as it did in `1.0.0-rc.2`.
 
-Publication state: prepared and pushed. No git tag, no GitHub release, and no registry publication exists for this candidate; the maintainer cuts the release after verifying. The previous candidate is still the published GitHub prerelease.
+Publication state: published as the GitHub prerelease **v1.0.0-rc.3**, with the wheel attached to that release. No registry publication exists: this plugin is distributed from the GitHub release, not from PyPI.
 
 ### Added
 
@@ -55,6 +55,6 @@ Set `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, or both through the secret manager
 
 ### Status
 
-Implementation, tests, and documentation are complete and pushed. The maintainer cuts the tag and release after verification. See [docs/compliance.md](docs/compliance.md) and [docs/verification.md](docs/verification.md).
+Implementation, tests, and documentation are complete, verified, and published. See [docs/compliance.md](docs/compliance.md) and [docs/verification.md](docs/verification.md).
 
 Licensed under the MIT license. Laya is by Nandakishor M and Convai Innovations, Apache-2.0: https://github.com/NandhaKishorM/laya
