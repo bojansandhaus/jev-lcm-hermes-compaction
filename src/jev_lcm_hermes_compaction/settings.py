@@ -13,6 +13,9 @@ class Settings:
     jev_endpoint_path: str = "/systemone"
     jev_model: str = "jev-latest"
     openrouter_model: str = "~typesafe/jev-latest"
+    laya_base_url: str = "http://127.0.0.1:8000"
+    laya_endpoint_path: str = "/v1/systemone"
+    laya_model: str = "convaiinnovations/laya"
     jev_fallback_enabled: bool = True
     jev_fallback_order: tuple[str, ...] = ("typesafe", "openrouter")
     jev_fallback_on: tuple[str, ...] = (
@@ -53,7 +56,7 @@ class Settings:
     hint_budget_tokens: int = 4000
 
     def __post_init__(self) -> None:
-        if self.jev_provider not in ("auto", "typesafe", "openrouter"):
+        if self.jev_provider not in ("auto", "typesafe", "openrouter", "laya"):
             raise ValueError("invalid jev_provider")
         if (
             not self.jev_fallback_order
@@ -92,6 +95,7 @@ class Settings:
             raise ValueError("invalid calibration window")
         endpoint(self.typesafe_base_url, self.jev_endpoint_path)
         endpoint(self.openrouter_base_url, self.openrouter_endpoint_path)
+        endpoint(self.laya_base_url, self.laya_endpoint_path)
 
 
 def endpoint(base: str, path: str) -> str:

@@ -10,7 +10,14 @@ from .jev_client import ProviderError, parse_answers, post
 from .settings import Settings, endpoint
 
 LOG = logging.getLogger(__name__)
-ENV = {"typesafe": "TYPESAFE_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
+ENV = {
+    "typesafe": "TYPESAFE_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "laya": "LAYA_API_KEY",
+}
+# A provider bound to the loopback interface carries no credential requirement:
+# an empty key means "send no Authorization header", not "disabled".
+KEYLESS = frozenset({"laya"})
 Transport = Callable[[str, str, dict[str, Any], float], Any]
 
 
@@ -39,6 +46,28 @@ class TypeSafeProvider(JevProvider):
     def __init__(self, settings: Settings):
         self.url = endpoint(settings.typesafe_base_url, settings.jev_endpoint_path)
         self.model = settings.jev_model
+
+
+class LayaProvider(JevProvider):
+    """A local Laya server, reached over the Jev Decisions wire contract.
+
+    ``laya-serve`` publishes ``POST /v1/systemone`` and answers with the same
+    ``answers`` mapping a hosted Decisions provider returns, so this provider is
+    the TypeSafe request shape pointed at loopback. Nothing leaves the machine
+    and no credential is required: ``LAYA_API_KEY`` is sent only when the server
+    was started with its own bearer check.
+
+    ``laya_model`` names a Laya checkpoint (``english``, ``multilingual``,
+    ``typed-decisions``, or the published repository ids). Any other value,
+    including a Jev model identifier, makes the server choose a checkpoint from
+    the script and language of the state.
+    """
+
+    name = "laya"
+
+    def __init__(self, settings: Settings):
+        self.url = endpoint(settings.laya_base_url, settings.laya_endpoint_path)
+        self.model = settings.laya_model
 
 
 NATIVE_DECISIONS_PATH = "/alpha/decisions"
@@ -169,19 +198,24 @@ class ProviderChain:
             name: (env if env is not None else os.environ).get(var, "").strip()
             for name, var in ENV.items()
         }
-        configured = (
-            settings.jev_fallback_order
-            if settings.jev_provider == "auto"
-            else (settings.jev_provider,)
-        )
-        if settings.jev_provider != "auto" and not self._keys[settings.jev_provider]:
-            raise ValueError("missing " + ENV[settings.jev_provider])
-        self.order = [p for p in configured if self._keys[p]]
+        if settings.jev_provider == "laya":
+            # Laya runs locally in place of the hosted Jev providers, so the
+            # local mode has no chain to fall through and no credential to find.
+            self.order = ["laya"]
+        elif settings.jev_provider == "auto":
+            # The hosted chain contains only providers with a usable key. The
+            # keyless local provider is never selected on its own initiative.
+            self.order = [p for p in settings.jev_fallback_order if self._keys[p]]
+        else:
+            if not self._keys[settings.jev_provider]:
+                raise ValueError("missing " + ENV[settings.jev_provider])
+            self.order = [settings.jev_provider]
         if not settings.jev_fallback_enabled:
             self.order = self.order[:1]
         self.providers: dict[str, JevProvider] = {
             "typesafe": TypeSafeProvider(settings),
             "openrouter": OpenRouterProvider(settings),
+            "laya": LayaProvider(settings),
         }
         self.cooldowns: dict[str, float] = {}
         self.errors: dict[str, str] = {}

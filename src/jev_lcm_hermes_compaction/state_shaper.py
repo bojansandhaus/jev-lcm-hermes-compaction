@@ -64,7 +64,14 @@ def shape(
         trial = {**state, "candidates": state["candidates"] + [entry]}
         trial_q = {**qs, **questions(candidate)}
         envelope = {
-            "model": max((settings.jev_model, settings.openrouter_model), key=len),
+            "model": max(
+                (
+                    settings.jev_model,
+                    settings.openrouter_model,
+                    settings.laya_model,
+                ),
+                key=len,
+            ),
             "state": trial,
             "questions": trial_q,
         }

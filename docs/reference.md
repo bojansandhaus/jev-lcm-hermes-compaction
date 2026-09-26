@@ -14,17 +14,21 @@ Defaults below are read from `settings.py`.
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| `jev_provider` | `auto` | `auto`, `typesafe`, or `openrouter`. |
+| `jev_provider` | `auto` | `auto`, `typesafe`, `openrouter`, or `laya`. |
 | `TYPESAFE_API_KEY` | unset | TypeSafe credential, supplied through the environment or secret manager. |
 | `OPENROUTER_API_KEY` | unset | OpenRouter credential, supplied through the environment or secret manager. |
+| `LAYA_API_KEY` | unset | Optional bearer for a local `laya-serve` started with `LAYA_API_KEY`. The local provider needs no credential. |
 | `typesafe_base_url` | `https://api.typesafe.ai/v1` | TypeSafe base URL. |
 | `openrouter_base_url` | `https://openrouter.ai/api` | OpenRouter base URL. |
 | `openrouter_endpoint_path` | `/alpha/decisions` | OpenRouter path. Any other value selects the chat completions adapter. |
 | `jev_endpoint_path` | `/systemone` | TypeSafe path appended to its base URL. |
 | `jev_model` | `jev-latest` | TypeSafe model identifier. |
 | `openrouter_model` | `~typesafe/jev-latest` | Model identifier sent by the current OpenRouter adapter. Verify model availability before use. |
+| `laya_base_url` | `http://127.0.0.1:8000` | Local `laya-serve` base URL. Plain HTTP is accepted for loopback only. |
+| `laya_endpoint_path` | `/v1/systemone` | Local server path, which is the Decisions protocol `laya-serve` publishes. |
+| `laya_model` | `convaiinnovations/laya` | Laya checkpoint. `english`, `multilingual`, and `typed-decisions` name a checkpoint; any other value routes by script and language. |
 | `jev_fallback_enabled` | `true` | Permit fallback to the next configured provider. |
-| `jev_fallback_order` | `typesafe, openrouter` | Ordered provider preference. |
+| `jev_fallback_order` | `typesafe, openrouter` | Ordered preference inside the hosted pair. The local route is not a chain member. |
 | `jev_fallback_on` | transport, timeout, 401, 403, 429, 5xx | Errors eligible for fallback. |
 | `jev_fallback_cooldown_s` | `60` | Session-local cooldown after a failed provider. |
 | `jev_fallback_max_retries` | `1` | Retries for the final available provider. |
@@ -81,7 +85,7 @@ The batcher flushes on the turn window, urgent context pressure, shutdown, and `
 
 ## Providers and wire boundaries
 
-The provider abstraction sends a Decisions-shaped payload containing `model`, `state`, and `questions`. TypeSafe uses the configured TypeSafe base plus `jev_endpoint_path`. OpenRouter uses `openrouter_base_url` plus `openrouter_endpoint_path`, with the configured OpenRouter model.
+The provider abstraction sends a Decisions-shaped payload containing `model`, `state`, and `questions`. TypeSafe uses the configured TypeSafe base plus `jev_endpoint_path`. OpenRouter uses `openrouter_base_url` plus `openrouter_endpoint_path`, with the configured OpenRouter model. Laya uses `laya_base_url` plus `laya_endpoint_path`, with `laya_model`, and carries no credential unless `LAYA_API_KEY` is set.
 
 ### OpenRouter surfaces
 
@@ -95,6 +99,25 @@ The provider abstraction sends a Decisions-shaped payload containing `model`, `s
 The chat adapter tolerates fenced JSON and wraps scalar answers, and it passes a body that already carries a non-empty `answers` mapping straight through. A missing, empty, or unparseable answer set raises `malformed`, which is not a fallback trigger, so the request fails loudly rather than scoring blind.
 
 On 2026-09-21 OpenRouter answered a chat completions request for the configured model with `400 ~typesafe/jev-latest is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.` The shipped default therefore points at the native surface, and the chat adapter is selectable rather than default. Response parity between the two surfaces is asserted in `tests/test_providers.py`.
+
+### Local Laya server
+
+`jev_provider: laya` points the same payload at a `laya-serve` process on loopback. Laya ships that server itself, and it publishes `POST /v1/systemone` in the TypeSafe Decisions contract, so the request and response path are identical to the hosted route except for the host, the absence of a credential, and the model field, which names a Laya checkpoint instead of a Jev model.
+
+| Setting | Role |
+|---|---|
+| `laya_base_url` | Where the server listens. Plain HTTP is accepted only for `localhost`, `127.0.0.1`, and `::1`, the same rule every other provider follows. |
+| `laya_endpoint_path` | Fixed at `/v1/systemone` by default, which is the route `laya-serve` exposes. |
+| `laya_model` | `convaiinnovations/laya` (route by script and language), `english`, `multilingual`, or `typed-decisions`. |
+| `LAYA_API_KEY` | Sent only when the server was started with `LAYA_API_KEY`. Diagnostics report the variable name, never its value. |
+
+The local route replaces the hosted pair instead of joining it. `jev_provider: laya` builds a chain of exactly one provider, `auto` never selects it, and `jev_fallback_order` accepts only `typesafe` and `openrouter`. The wire client omits the `Authorization` header entirely for an empty key, so a server started without `LAYA_API_KEY` accepts the request unchanged.
+
+Two limits were measured against a real `laya-serve` on 2026-09-22 with the base English checkpoint on CPU, using this repository's own retention questions:
+
+1. **Separation between keep and discard is not established.** Four obviously-keep spans and four obviously-droppable spans scored `0.6516` and `0.6502` on average, a gap of `0.0014`, and `JevThresholdCalibrator` then reported `0.40`, its `keep_threshold_max` ceiling, retaining all 16 answers. The local route therefore fails safe: it keeps evidence rather than dropping it, and frees nothing until thresholds are recalibrated on labelled data or a retention-tuned checkpoint is used.
+2. **Latency scales with question rows.** Those 16 questions took `25.6s`, roughly `1.6s` per row, beyond the default `request_timeout_s` of `30`. Raise `request_timeout_s` and lower `jev_max_candidates_per_batch`, or serve from a GPU.
+3. **The default port is shared ground.** `laya_base_url` defaults to `http://127.0.0.1:8000`, and any other service bound to 8000 answers the request instead of Laya. A `404` carrying `{"detail": "Not Found"}` is the symptom, and it surfaces as `http_error`, which is not a fallback trigger. Start the server with `LAYA_PORT` and point `laya_base_url` at the port you actually bound.
 
 Fallback is session-local. A matching transport, timeout, HTTP status, or provider parse failure can cool down the primary and try the next available provider. When both providers fail, LCM proceeds without Jev. Malformed Decisions output is an error, never a source of fabricated scores. Cooldown expiry makes the provider eligible again. `jev_provider_fallback_count` counts provider changes, not HTTP attempts.
 

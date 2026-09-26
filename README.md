@@ -56,7 +56,9 @@ The shrink ladder starts with full state, then trims tool inputs and result bodi
 
 Yes, subject to the adapter contract documented in [`docs/reference.md`](docs/reference.md). A TypeSafe-only setup pins `jev_provider: typesafe`. An OpenRouter-only setup pins `jev_provider: openrouter`. With `auto`, both keys follow `jev_fallback_order`, defaulting to TypeSafe then OpenRouter. A fallback emits a sanitized line such as `jev_provider_fallback from=typesafe to=openrouter reason=429`. Key values are never printed.
 
-The same engine therefore runs as TypeSafe Jev for Hermes, as OpenRouter Jev for Hermes, or as a chain across both. Jev threshold calibration is automatic from observed scores. Jev provider fallback covers configured transport, timeout, authentication, rate-limit, and server failures. LCM with Jev scoring changes which stale evidence stays visible; LCM continues to own storage and recall.
+There is also a way to run with no hosted service at all, and it is an alternative rather than an addition. You either point Jev at TypeSafe or OpenRouter with a key, or you run Laya locally with no key. `jev_provider: laya` scores through a `laya-serve` process on your own machine, configured with `laya_base_url`, `laya_endpoint_path`, and `laya_model` in place of a credential. Laya is not a hosted Jev endpoint, it is a separate model that answers the same `/v1/systemone` contract, so selecting it replaces the hosted route instead of extending it. See the [Laya FAQ](#can-i-run-it-locally-with-laya-instead-of-a-hosted-provider) for the measured limits of the base checkpoint.
+
+The same engine therefore runs Jev for Hermes over a TypeSafe key, over an OpenRouter key, or over a Laya server on your own machine, with fallback inside the hosted pair. Jev threshold calibration is automatic from observed scores. Jev provider fallback covers configured transport, timeout, authentication, rate-limit, and server failures. LCM with Jev scoring changes which stale evidence stays visible; LCM continues to own storage and recall.
 
 ## Jev-LCM, Jev-alone, and LCM-alone
 
@@ -105,7 +107,8 @@ A directory install works as well: place `plugin.yaml`, `plugin.py`, and `__init
 
 | Group | Important settings |
 |---|---|
-| Provider | `jev_provider`, `typesafe_base_url`, `openrouter_base_url`, `openrouter_endpoint_path`, `jev_endpoint_path`, `jev_model`, `openrouter_model` |
+| Provider | `jev_provider`, `typesafe_base_url`, `openrouter_base_url`, `openrouter_endpoint_path`, `jev_endpoint_path`, `jev_model`, `openrouter_model`, `laya_base_url`, `laya_endpoint_path`, `laya_model` |
+| Credentials | `TYPESAFE_API_KEY`, `OPENROUTER_API_KEY`, `LAYA_API_KEY` (the local provider needs none) |
 | Fallback | `jev_fallback_enabled`, `jev_fallback_order`, `jev_fallback_on`, `jev_fallback_cooldown_s`, `jev_fallback_max_retries` |
 | Calibration | `keep_threshold`, `keep_threshold_max`, `min_keep_rate`, `jev_calibration_enabled`, `jev_calibration_window`, `jev_calibration_min_samples`, `conservative` |
 | Anchors | `jev_anchor_patterns`, `jev_anchor_protection_enabled`, `hint_budget_tokens` |
@@ -156,6 +159,32 @@ Yes. Configure `OPENROUTER_API_KEY` and pin `jev_provider: openrouter`, or use `
 
 ### Can I use both keys at once?
 Yes. `auto` selects the first available provider and can fall back on configured failures.
+
+### Can I run it locally with Laya instead of a hosted provider?
+Yes. Laya is a typed decision model you run yourself, and the `laya-serve` server it ships speaks the same `/v1/systemone` wire protocol as TypeSafe, so the plugin scores through a process on your own machine with no key and no outbound request:
+
+```sh
+python -m pip install laya
+laya-serve                       # LAYA_HOST, LAYA_PORT, LAYA_DEVICE, LAYA_THREADS, LAYA_API_KEY
+```
+
+```yaml
+context:
+  engine: jev-lcm
+jev_lcm:
+  jev_provider: laya
+  laya_base_url: http://127.0.0.1:8000
+  laya_model: english
+  request_timeout_s: 120
+```
+
+`laya_base_url` defaults to `http://127.0.0.1:8000`, `laya_endpoint_path` to `/v1/systemone`, and `laya_model` to `convaiinnovations/laya`, which asks the server to pick a checkpoint from the script and language of the state; `english`, `multilingual`, and `typed-decisions` name a checkpoint directly. `LAYA_API_KEY` is forwarded only when the server was started with its own bearer check. The local route has no key to find, so `auto` never selects it, and `jev_fallback_order` accepts only the hosted names. Pinning `laya` gives that profile exactly one provider.
+
+Two measured limits come from a live run against `laya-serve` on 2026-09-22, base English checkpoint, CPU:
+
+- **Quality on these questions is not established.** Across four clearly-keep spans and four clearly-droppable spans, scored with the production retention questions, the keep group averaged `0.6516` and the drop group `0.6502`, a gap of `0.0014`. Calibration then set `0.40`, its `keep_threshold_max` cap, and all 16 answers were retained. The failure direction is safe: the local path keeps everything rather than dropping evidence, so compaction frees nothing until you recalibrate on your own data or use a checkpoint tuned for retention. Treat the local route as an offline mechanism first and a scoring improvement only after you have measured it.
+- **Cost is per question row.** The same 16-question request took `25.6s`, about `1.6s` per row, which is past the default `request_timeout_s` of `30`. Raise `request_timeout_s` and lower `jev_max_candidates_per_batch` for a CPU-only server, or load the model once on a GPU.
+- **The default port is shared ground.** `laya_base_url` points at `http://127.0.0.1:8000`, which many self-hosted services also claim. If something else already listens there, the plugin reaches that service and reports an error instead of a score; a `404` with the body `{"detail":"Not Found"}` is how that looks. Start the server with `LAYA_PORT=<port>` and set `laya_base_url` to that same port.
 
 ### What happens if TypeSafe is rate-limited?
 A matching `429` can trigger fallback, cooldown, and a sanitized diagnostic when OpenRouter is available.

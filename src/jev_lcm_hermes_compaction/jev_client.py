@@ -50,10 +50,13 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def post(url: str, key: str, payload: dict[str, Any], timeout: float) -> Any:
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = "Bearer " + key
     request = urllib.request.Request(
         url,
         data=json.dumps(payload, ensure_ascii=False).encode(),
-        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:

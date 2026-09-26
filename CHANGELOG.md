@@ -35,6 +35,26 @@ Tamara Tran contributed the upstream state-shaping and two-question scoring desi
 
 The project uses the MIT license. See [third party notices](THIRD_PARTY_NOTICES.md) for licenses and specific reuse.
 
+## [1.0.0-rc.2] - 2026-09-22
+
+Adds a local route for Jev scoring: instead of calling TypeSafe or OpenRouter with a key, point the engine at a Laya server on your own machine. The hosted pair remains the default and an existing configuration keeps behaving exactly as before.
+
+### Added
+
+- `laya` provider, scoring through a local `laya-serve` process over the Decisions `/v1/systemone` protocol, configured with `laya_base_url`, `laya_endpoint_path`, and `laya_model`.
+- Keyless provider handling: `ProviderChain` accepts `laya` with no credential, and the wire client omits the `Authorization` header when no key is configured. `LAYA_API_KEY` is forwarded only when the local server was started with one.
+- `laya` as a `jev_provider` value that replaces the hosted pair for that profile. It is not a fallback member: `jev_fallback_order` accepts only `typesafe` and `openrouter`, and `auto` never selects the local route on its own.
+- `tests/test_laya_provider.py`, eight contracts across nine cases: keyless selection, wire shape, endpoint validation, stopped-server failure, fallback ordering, credential forwarding without leaking it, and the header rule.
+
+### Measured against a live `laya-serve`, 2026-09-22, base English checkpoint, CPU
+
+- The local checkpoint did not separate keep from discard on the production retention questions: `0.6516` against `0.6502` on average, a gap of `0.0014`. Calibration then reported `0.40`, its `keep_threshold_max` ceiling, and all 16 answers were retained. The route fails safe, it keeps evidence instead of dropping it, and frees nothing until thresholds are recalibrated on labelled data or a retention-tuned checkpoint is used.
+- Those 16 question rows took `25.6s`, roughly `1.6s` each, which exceeds the default `request_timeout_s` of `30`. Raise `request_timeout_s` and lower `jev_max_candidates_per_batch` for a CPU-only server.
+
+### Status
+
+Implementation, tests, and documentation are complete and pushed. Registry publication is unchanged from `1.0.0-rc.1`. Nothing in this release installs Laya or selects it by default.
+
 ## [1.0.0] - 2026-09-19 (prepared, unpublished)
 
 Jev-LCM Compaction Plugin for Hermes: Jev ranks stale evidence before Lossless Context Management condenses conversation history.
