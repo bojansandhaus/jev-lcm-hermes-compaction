@@ -43,7 +43,9 @@ jev_lcm:
 
 Set one or both of `TYPESAFE_API_KEY` and `OPENROUTER_API_KEY`. Auto mode with both keys uses the configured order and can fall back. A pinned provider with a missing key is a load-time error. With neither key, Jev is disabled and LCM continues without provider traffic.
 
-Three routes are available: `auto` runs Jev over the hosted keys, `laya` runs Laya locally and nothing leaves the machine, and `laya_then_hosted` runs Laya first with the keyed hosted providers behind it. The combined mode needs at least one hosted key and raises at load, naming the variables it needs, without one. In that mode a local failure on a configured trigger sends the state to a hosted API, so enable it only where that consequence is acceptable.
+Three routes are available: `auto` runs Jev over the hosted keys, `laya` runs Laya locally and nothing leaves the machine, and `laya_then_hosted` runs Laya first with the keyed hosted providers behind it. The combined mode needs at least one hosted key and raises at load, naming the variables it needs, without one. In that mode a local failure on a configured trigger sends the state to a hosted API, so enable it only where that consequence is acceptable. The same three arrangements answer to the alternative names `jev_api`, `laya_local`, and `laya_with_jev_fallback`: an alias resolves to its canonical mode, so it builds the same chain and carries the same privacy boundary. A value outside both vocabularies raises at load, and the message names every accepted value.
+
+Bounded escalation in the combined mode: the chain counts consecutive local failures. Three consecutive failures may still fall through to the hosted hop; past three the fallback is suppressed, a category-only warning is logged, and the local error is raised to the caller instead of being answered remotely. Any healthy local answer clears the count, which is held per process and cleared by a restart, so expect a nonzero counter until Laya answers. `jev_providers` reports it as `laya_consecutive_failures`. The breaker cannot notice a local answer that is valid but wrong: only a local error escalates, and a weak local score is still an answer.
 
 ## Reset semantics
 
@@ -56,7 +58,7 @@ Use the package tools exposed by the active engine:
 - `jev_stats`: counters, threshold, provider, freed-per-compaction, and recall field.
 - `jev_scores`: candidate scores and actions.
 - `jev_anchors`: extracted assistant-text anchors.
-- `jev_providers`: sanitized provider order and cooldown diagnostics.
+- `jev_providers`: sanitized provider order, cooldown diagnostics, and the `laya_consecutive_failures` breaker counter.
 - `lcm_grep` and `lcm_expand`: raw evidence recovery.
 
 A low-freed warning after three consecutive cycles means the current compaction is paying for less space. Inspect `lcm_text_floor_tokens`, summary depth, threshold calibration, and host context settings before raising limits blindly.
@@ -68,7 +70,7 @@ A low-freed warning after three consecutive cycles means the current compaction 
 | Plugin does not load | Python environment, package discovery, YAML engine name | Reinstall in the Hermes environment and return to `compressor` while diagnosing. |
 | Missing-key error | `jev_provider` is pinned but its environment variable is absent | Set the named variable through the secret manager or use `auto`. |
 | Jev disabled | Neither key is present or all providers are cooling down | Confirm `jev_providers`; LCM should still condense. |
-| Fallback repeats | `jev_fallback_on`, provider status, cooldown, endpoint compatibility | Run a synthetic check with no sensitive text, then fix the primary. |
+| Fallback repeats | `jev_fallback_on`, provider status, cooldown, endpoint compatibility, and `laya_consecutive_failures` | Run a synthetic check with no sensitive text, then fix the primary. A suppressed fallback means the local hop failed more than three times in a row; that error is raised on purpose so the failure is not answered remotely. |
 | Malformed response | Provider adapter and model's Decisions-shaped output | Treat as provider failure; do not loosen parsing to accept guessed scores. |
 | No anchor appears | Pattern, assistant role, threshold, or hint budget | Inspect `jev_anchors` and `jev_stats`; the raw message remains recoverable. |
 | Large batch is unscored | State/request budgets or T4 hard cap | Use LCM recall. Do not claim the provider scored the unscored remainder. |

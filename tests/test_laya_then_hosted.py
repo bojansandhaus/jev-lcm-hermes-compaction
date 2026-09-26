@@ -199,3 +199,34 @@ def test_the_three_provider_modes_keep_their_own_chain_shapes():
     assert Settings(jev_provider="laya_then_hosted").jev_provider == "laya_then_hosted"
     with pytest.raises(ValueError, match="invalid jev_provider"):
         Settings(jev_provider="laya_then_local")
+
+
+def test_a_weak_local_answer_never_triggers_the_hosted_fallback():
+    """Only a local exception falls through, never a low or wrong local score.
+
+    The retained-state decision belongs to the threshold and the calibrator, so
+    a local answer of zero is still a local answer and stays on the machine.
+    """
+    seen = []
+
+    def transport(url, key, payload, timeout):
+        seen.append(url)
+        return {"answers": {q: {"noul": 0.0} for q in payload["questions"]}}
+
+    chain = ProviderChain(
+        Settings(jev_provider="laya_then_hosted"), BOTH_KEYS, transport
+    )
+    assert chain.score({}, QUESTIONS) == {"x:keep_result": 0.0}
+    assert seen == [LOCAL]
+    assert chain.last_provider == "laya"
+    assert chain.fallback_count == 0
+    assert chain.diagnostics()["last_errors"] == {}
+
+    weak = ProviderChain(
+        Settings(jev_provider="laya_then_hosted", keep_threshold=0.99),
+        BOTH_KEYS,
+        transport,
+    )
+    assert weak.score({"note": "weak span"}, QUESTIONS) == {"x:keep_result": 0.0}
+    assert [url for url in seen if url != LOCAL] == []
+    assert weak.diagnostics()["last_errors"] == {}

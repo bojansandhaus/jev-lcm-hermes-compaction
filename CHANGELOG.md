@@ -35,6 +35,31 @@ Tamara Tran contributed the upstream state-shaping and two-question scoring desi
 
 The project uses the MIT license. See [third party notices](THIRD_PARTY_NOTICES.md) for licenses and specific reuse.
 
+## [1.0.0-rc.4] - 2026-09-26
+
+Bounds repeated escalation from the local hop, adds the three-mode vocabulary, and replaces the small local quality probe with the strongest evidence available. An installation that sets `auto`, `typesafe`, `openrouter`, or `laya` behaves exactly as it did in `1.0.0-rc.3`.
+
+### Added
+
+- A consecutive-failure breaker on the local hop in `laya_then_hosted`. Three consecutive local failures may still fall through to the hosted provider; past three the fallback is suppressed, a category-only warning is logged, and the local error is re-raised instead of being answered remotely. Any successful local call clears the counter, on the fallback path and on the plain local path alike. The counter is held per process, shared by every chain in it, and reset by a restart. It is reported as `laya_consecutive_failures` in `chain.diagnostics()` and `jev_providers`.
+- The mode aliases `laya_local` and `laya_with_jev_fallback` for `laya` and `laya_then_hosted`, plus `jev_api` for `auto`. `Settings` resolves an alias to its canonical value, so both spellings build one chain. Anything outside the accepted set raises `ValueError` at load with every accepted value and alias named in the message.
+- `tests/test_laya_fallback_breaker.py`, eight tests named after the behaviour: three consecutive fallbacks then a suppressed fourth that re-raises the local error, no remote call on the suppressed attempt, the reset on a healthy local call on both paths, the per-process lifetime, the counter in diagnostics, a hosted failure that never charges the local breaker, and the category-only suppression warning.
+- `tests/test_laya_mode_aliases.py`, six tests over seventeen cases: the alias-to-canonical resolution, the identical chain and diagnostics, every previously accepted value keeping its own chain, the rejection message, and the alias table not drifting from the canonical set.
+- A weak local answer never escalates: `tests/test_laya_then_hosted.py` now pins that a local score of `0.0` with a `0.99` threshold is returned locally and makes no hosted request.
+- `tests/test_fallback.py` drives a batch whose state and candidate text carry a sentinel and asserts the sentinel never reaches `caplog`, pinning the logging property rather than describing it.
+- `evaluation/live_laya_then_hosted.py` grew two phases: four consecutive local failures against a dead port with the hosted hop answered by a recorder, and a build of both mode vocabularies.
+
+### Changed
+
+- `docs/reference.md`, `README.md`, `docs/limitations.md`, and `docs/verification.md` now lead with the matched 100-question, three-mode benchmark published with the DOGA fork instead of this repository's eight-span probe: goal agreement 56/100 for local Laya against 88/100 for the hosted Jev API, response mode 41 against 68, stakes 37 against 67, high-versus-low ambiguity 67 against 87, and none of the 30 authored high-ambiguity labels detected locally at the 0.7 threshold. The measured local numbers from 2026-09-22 remain, labelled as the smaller probe they are.
+- Documentation states the breaker's limit as plainly as its behaviour: it bounds repeated remote egress after local errors and cannot detect a valid yet incorrect local judgment.
+- `docs/reference.md` gained a "Logging and privacy" section recording the audit rule: a scoring-path log line carries a category, a provider name, or a counter, never the state, candidate text, a question instruction, or an answer.
+
+### Verification
+
+- 127 tests pass, `mypy` is clean over 14 source files, `black --check` reports 38 files unchanged, non-vendored coverage is 97.45% (688 of 706 statements), and `python -m build` produced `jev_lcm_hermes_compaction-1.0.0rc4-py3-none-any.whl` and its source distribution.
+- The breaker was exercised live against the `laya-serve` on `http://127.0.0.1:8123`: three hosted fallbacks answered over a recorded URL, the fourth attempt ended with the local `transport_error` and reached no hosted URL, and the process counter read `4`. The hosted leg remains unit-tested with an injected transport; no hosted API key exists on this machine.
+
 ## [1.0.0-rc.3] - 2026-09-26
 
 Adds the third provider route: Laya first with the hosted Jev providers behind it. Jev runs over a hosted API key, Laya runs locally, or Laya runs locally with the hosted APIs as fallback. `jev_provider: laya_then_hosted` is an explicit opt-in, so an installation that sets `auto`, `typesafe`, `openrouter`, or `laya` behaves exactly as it did in `1.0.0-rc.2`.

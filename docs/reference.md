@@ -14,7 +14,7 @@ Defaults below are read from `settings.py`.
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| `jev_provider` | `auto` | `auto`, `typesafe`, `openrouter`, `laya`, or `laya_then_hosted` (Laya first, then the keyed hosted providers). |
+| `jev_provider` | `auto` | `auto`, `typesafe`, `openrouter`, `laya`, or `laya_then_hosted` (Laya first, then the keyed hosted providers). The mode aliases `jev_api`, `laya_local`, and `laya_with_jev_fallback` resolve to `auto`, `laya`, and `laya_then_hosted`. Anything else is rejected at load with the accepted names in the error. |
 | `TYPESAFE_API_KEY` | unset | TypeSafe credential, supplied through the environment or secret manager. |
 | `OPENROUTER_API_KEY` | unset | OpenRouter credential, supplied through the environment or secret manager. |
 | `LAYA_API_KEY` | unset | Optional bearer for a local `laya-serve` started with `LAYA_API_KEY`. The local provider needs no credential. |
@@ -100,6 +100,27 @@ The chat adapter tolerates fenced JSON and wraps scalar answers, and it passes a
 
 On 2026-09-21 OpenRouter answered a chat completions request for the configured model with `400 ~typesafe/jev-latest is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.` The shipped default therefore points at the native surface, and the chat adapter is selectable rather than default. Response parity between the two surfaces is asserted in `tests/test_providers.py`.
 
+### The three arrangements and the names that select them
+
+There are three mutually exclusive arrangements, and two vocabularies for them.
+Every value in the left table resolves to exactly one chain, one privacy
+boundary, and one local-hop breaker.
+
+| Arrangement | Canonical value | Accepted alias |
+|---|---|---|
+| Hosted Jev over the configured keys | `auto` | `jev_api` |
+| Laya local, nothing leaves the machine | `laya` | `laya_local` |
+| Laya local, then the keyed hosted providers on a local failure | `laya_then_hosted` | `laya_with_jev_fallback` |
+
+`typesafe` and `openrouter` still pin one hosted provider and are unchanged;
+they are narrower forms of the hosted arrangement rather than a fourth
+arrangement. An alias is resolved in `Settings.__post_init__` to its canonical
+value, so `Settings(jev_provider="laya_local") == Settings(jev_provider="laya")`
+and every consumer downstream reads one spelling. Every value that was accepted
+before this release keeps its behaviour. A value that is not in the table above
+raises `ValueError` at load, and the message lists the accepted values and the
+aliases it could have meant.
+
 ### Local Laya server
 
 `jev_provider: laya` points the same payload at a `laya-serve` process on loopback. Laya ships that server itself, and it publishes `POST /v1/systemone` in the TypeSafe Decisions contract, so the request and response path are identical to the hosted route except for the host, the absence of a credential, and the model field, which names a Laya checkpoint instead of a Jev model.
@@ -113,7 +134,32 @@ On 2026-09-21 OpenRouter answered a chat completions request for the configured 
 
 The local route replaces the hosted pair instead of joining it. `jev_provider: laya` builds a chain of exactly one provider, `auto` never selects it, and `jev_fallback_order` accepts only `typesafe` and `openrouter`. `laya_then_hosted` is the separate explicit mode that joins the two, and it is described in the next subsection. The wire client omits the `Authorization` header entirely for an empty key, so a server started without `LAYA_API_KEY` accepts the request unchanged.
 
-Two limits were measured against a real `laya-serve` on 2026-09-22 with the base English checkpoint on CPU, using this repository's own retention questions:
+**Quality evidence for this route, in order of strength.** The strongest
+available comparison is the matched 100-question, three-mode benchmark published
+with the DOGA fork, which exercises the same local server, the same
+classification questions, and the same 0.7 ambiguity threshold as this package's
+ambiguity handling. It ran each question through local Laya with no fallback,
+through the hosted Jev API, and through local Laya with the fallback enabled:
+
+| Measure | Laya local | Hosted Jev API |
+|---|---:|---:|
+| Goal agreement with the authored label | 56/100 | 88/100 |
+| Response-mode agreement | 41/100 | 68/100 |
+| Stakes agreement | 37/100 | 67/100 |
+| High-versus-low ambiguity agreement at score 0.7 | 67/100 | 87/100 |
+| Authored high-ambiguity cases detected | 0/30 | 21/30 |
+
+Read this as a signal about one authored, subjective label set, not as
+population accuracy: the labels were written before the local comparison and
+were not independently adjudicated. The decision it supports is the one this
+package ships: keep the hosted arrangement as the default, describe the local
+route as an offline mechanism rather than a quality improvement, and treat a
+local failure as the only reason to escalate to a hosted provider.
+
+The older, much smaller probe this repository ran itself is still true and still
+secondary. Three limits were measured against a real `laya-serve` on 2026-09-22
+with the base English checkpoint on CPU, using this repository's own retention
+questions:
 
 1. **Separation between keep and discard is not established.** Four obviously-keep spans and four obviously-droppable spans scored `0.6516` and `0.6502` on average, a gap of `0.0014`, and `JevThresholdCalibrator` then reported `0.40`, its `keep_threshold_max` ceiling, retaining all 16 answers. The local route therefore fails safe: it keeps evidence rather than dropping it, and frees nothing until thresholds are recalibrated on labelled data or a retention-tuned checkpoint is used.
 2. **Latency scales with question rows.** Those 16 questions took `25.6s`, roughly `1.6s` per row, beyond the default `request_timeout_s` of `30`. Raise `request_timeout_s` and lower `jev_max_candidates_per_batch`, or serve from a GPU.
@@ -131,11 +177,45 @@ Two limits were measured against a real `laya-serve` on 2026-09-22 with the base
 
 **Privacy consequence, stated plainly.** In `laya_then_hosted`, a local attempt that fails a transport, timeout, `401`, `403`, `429`, or `5xx` response sends the scored state to a hosted API. That is the point of the mode, and it is why the mode is explicit rather than selected automatically. The plain `laya` mode never leaves the machine. A local failure that is not on the trigger list, such as the `404` from a shared default port or a malformed answer, stops at the local route instead of escalating. Selecting `laya_then_hosted` with no hosted key at all raises `ValueError` at load and names the missing environment variables, because the mode promises a fallback that would not otherwise exist; `LAYA_API_KEY` alone does not satisfy it.
 
-Diagnostics report the mode's real chain through `chain.diagnostics()` and `jev_providers`: `order` carries the full `laya`, `typesafe`, `openrouter` sequence, `last_provider` names the hop that answered, `last_errors` names the hop that failed and its reason, and `keys_present` reports variable names only, never values.
+**The consecutive-failure breaker.** A local server that keeps failing would
+otherwise turn every batch into a hosted request, so the chain bounds that.
+Each local failure that the chain could escalate past increments a counter, and
+while the counter is at or below three the hosted fallback is still attempted.
+Past three the fallback is suppressed, a warning naming the category is logged,
+and the local error is re-raised so the failure stays visible instead of being
+answered remotely. Any successful local call clears the counter, on this mode
+and on plain `laya` alike, and so does any hosted-arrangement success. The count
+is held per process, is shared by every chain in that process, and resets when
+the process restarts; it is not persisted, so a restart begins at zero. The
+provider cooldown bounds egress as well: after a local failure the local hop is
+skipped for `jev_fallback_cooldown_s`, so the breaker counts failures across
+those windows rather than every call inside one. The counter is reported as
+`laya_consecutive_failures` in `chain.diagnostics()` and `jev_providers`.
 
-The hosted leg of this mode is covered by `tests/test_laya_then_hosted.py` with an injected transport that fails on the local URL and records the hosted attempt. No live hosted call is part of this release: no hosted API key exists on the machine that built it. The local leg is exercised live by `evaluation/live_laya_then_hosted.py`, which prints the built order and the hop that answered.
+**What the breaker does not do.** It bounds repeated remote egress after local
+errors. It cannot detect a local answer that is valid and wrong, and it does not
+change the threshold: a low-scoring local answer is still an answer, returned
+locally, and never a reason to call a hosted provider. Only an exception is.
+
+Diagnostics report the mode's real chain through `chain.diagnostics()` and `jev_providers`: `order` carries the full `laya`, `typesafe`, `openrouter` sequence, `last_provider` names the hop that answered, `last_errors` names the hop that failed and its reason, `laya_consecutive_failures` reports the breaker, and `keys_present` reports variable names only, never values.
+
+The hosted leg of this mode is covered by `tests/test_laya_then_hosted.py` with an injected transport that fails on the local URL and records the hosted attempt, and the breaker is covered by `tests/test_laya_fallback_breaker.py`. No live hosted call is part of this release: no hosted API key exists on the machine that built it. The local leg and the breaker are exercised live by `evaluation/live_laya_then_hosted.py`, which prints the built order, the hop that answered, and how four consecutive local failures end.
 
 Fallback is session-local. A matching transport, timeout, HTTP status, or provider parse failure can cool down the primary and try the next available provider. When both providers fail, LCM proceeds without Jev. Malformed Decisions output is an error, never a source of fabricated scores. Cooldown expiry makes the provider eligible again. `jev_provider_fallback_count` counts provider changes, not HTTP attempts.
+
+## Logging and privacy
+
+Every warning this package emits while it scores names a category, a provider, or
+a counter. The state, the candidate text, a question instruction, and any answer
+are never formatted into a log line: a provider failure is logged by its
+`ProviderError.reason` value, which is drawn from a fixed set (`transport_error`,
+`timeout`, `401`, `403`, `429`, `5xx`, `http_error`, `malformed`, `disabled`,
+`cooldown`) and clamped to `transport_error` for anything else, so a provider
+response body or an exception message cannot reach the log. The fallback line is
+`jev_provider_fallback from=... to=... reason=...` with provider names, and the
+suppression line is `laya_fallback_suppressed after 3 consecutive local failures`.
+`tests/test_fallback.py` pins this by driving a batch whose state and candidate
+text contain a sentinel and asserting the sentinel never appears in `caplog`.
 
 ## Metrics and diagnostics
 

@@ -3,6 +3,53 @@
 from dataclasses import dataclass
 from urllib.parse import urlsplit, unquote
 
+# The named arrangements, in this package's vocabulary. Each entry in
+# ``PROVIDER_MODES`` is canonical and keeps its own chain. ``PROVIDER_ALIASES``
+# carries the alternative names for the same three arrangements, so an operator
+# can write the mode they mean and get the chain they expect.
+PROVIDER_MODES: tuple[str, ...] = (
+    "auto",
+    "typesafe",
+    "openrouter",
+    "laya",
+    "laya_then_hosted",
+)
+PROVIDER_ALIASES: dict[str, str] = {
+    "jev_api": "auto",
+    "laya_local": "laya",
+    "laya_with_jev_fallback": "laya_then_hosted",
+}
+
+
+def canonical_provider(value: object) -> str | None:
+    """Resolve an accepted provider value, or ``None`` when it is not one.
+
+    An alias resolves to the canonical mode whose behaviour it names, so the
+    alias selects the same chain, the same privacy boundary, and the same
+    breaker as that mode.
+    """
+    if not isinstance(value, str):
+        return None
+    if value in PROVIDER_MODES:
+        return value
+    return PROVIDER_ALIASES.get(value)
+
+
+def invalid_provider(value: object) -> ValueError:
+    """An error that names every accepted value without echoing secrets."""
+    accepted = ", ".join(PROVIDER_MODES)
+    aliases = ", ".join(
+        alias + " for " + mode for alias, mode in PROVIDER_ALIASES.items()
+    )
+    return ValueError(
+        "invalid jev_provider "
+        + repr(value)
+        + "; expected one of "
+        + accepted
+        + ", or the mode alias "
+        + aliases
+    )
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -56,14 +103,13 @@ class Settings:
     hint_budget_tokens: int = 4000
 
     def __post_init__(self) -> None:
-        if self.jev_provider not in (
-            "auto",
-            "typesafe",
-            "openrouter",
-            "laya",
-            "laya_then_hosted",
-        ):
-            raise ValueError("invalid jev_provider")
+        mode = canonical_provider(self.jev_provider)
+        if mode is None:
+            raise invalid_provider(self.jev_provider)
+        if mode != self.jev_provider:
+            # An alias selects the canonical mode, so every consumer reads one
+            # spelling of the arrangement.
+            object.__setattr__(self, "jev_provider", mode)
         if (
             not self.jev_fallback_order
             or len(set(self.jev_fallback_order)) != len(self.jev_fallback_order)

@@ -1,6 +1,7 @@
 """Fallback chain: failures, cooldown, recovery, secret safety."""
 
 import json
+import logging
 
 import pytest
 
@@ -79,3 +80,34 @@ def test_no_keys_and_no_budget():
     p = Prepass(settings, ProviderChain(settings, {}))
     p.flush(force=True)
     assert p.hint_block() == ""
+
+
+def test_no_scoring_log_line_carries_state_candidate_text_or_an_answer(caplog):
+    """Logging hygiene on the scoring path: categories, never content.
+
+    Every warning this package emits while it scores names a category, a
+    provider, or a counter. The state, the candidate text, and any answer must
+    stay out of the log stream, because the log is copied around far more
+    casually than the evidence store.
+    """
+    sentinel = "SENTINEL-9f3c2a57"
+
+    def fail(*a):
+        raise ProviderError("transport_error")
+
+    settings = Settings(jev_provider="laya_then_hosted", min_result_chars=0)
+    prepass = Prepass(
+        settings, ProviderChain(settings, {"TYPESAFE_API_KEY": "private"}, fail)
+    )
+    messages = [
+        {"role": "user", "content": sentinel + " keep this verbatim"},
+        {"role": "assistant", "content": "`" + sentinel + "`"},
+        {"role": "tool", "content": "result body " + sentinel},
+        {"role": "user", "content": "tail"},
+    ]
+    with caplog.at_level(logging.DEBUG):
+        prepass.collect(messages, 3)
+        prepass.flush(force=True)
+    assert caplog.text
+    assert sentinel not in caplog.text
+    assert "transport_error" in caplog.text

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from typing import Any, Callable, Mapping
 from .jev_client import ProviderError, parse_answers, post
@@ -19,6 +20,38 @@ ENV = {
 # an empty key means "send no Authorization header", not "disabled".
 KEYLESS = frozenset({"laya"})
 Transport = Callable[[str, str, dict[str, Any], float], Any]
+
+# A local hop that keeps failing would otherwise turn every batch into hosted
+# traffic. This breaker counts consecutive failures of the local provider and
+# suppresses the hosted fallback past the limit, re-raising the local error so
+# the failure stays visible and no state leaves the machine. The count lives in
+# the process rather than in a chain, so it survives a rebuilt chain, and it
+# resets when the process restarts. Any successful local call clears it, on the
+# hosted fallback path and on the plain local path alike.
+_LAYA_FALLBACK_FAILURE_LIMIT = 3
+_laya_failure_lock = threading.Lock()
+_laya_failure_count = 0
+
+
+def _laya_failure_recorded() -> bool:
+    """Count one local failure and report whether the hosted fallback may follow."""
+    global _laya_failure_count
+    with _laya_failure_lock:
+        _laya_failure_count += 1
+        return _laya_failure_count <= _LAYA_FALLBACK_FAILURE_LIMIT
+
+
+def _laya_failure_cleared() -> None:
+    """Clear the breaker after a local call answered."""
+    global _laya_failure_count
+    with _laya_failure_lock:
+        _laya_failure_count = 0
+
+
+def laya_consecutive_failures() -> int:
+    """Consecutive local-hop failures this process has recorded."""
+    with _laya_failure_lock:
+        return _laya_failure_count
 
 
 class JevProvider:
@@ -243,6 +276,7 @@ class ProviderChain:
             },
             "last_errors": self.errors,
             "last_provider": self.last_provider,
+            "laya_consecutive_failures": laya_consecutive_failures(),
         }
 
     def score(self, state: Any, questions: dict[str, Any]) -> dict[str, float]:
@@ -284,10 +318,24 @@ class ProviderChain:
                 else:
                     self.last_provider = name
                     self.errors.pop(name, None)
+                    if name == "laya":
+                        _laya_failure_cleared()
                     return scores
                 self.errors[name] = last.reason
                 if last.reason not in self.settings.jev_fallback_on:
                     raise last
+                if name == "laya" and index + 1 < len(available):
+                    # The local hop failed where the hosted fallback would
+                    # follow. Past the limit the fallback is suppressed and the
+                    # local error is re-raised instead of being answered
+                    # remotely, so repeated local failures stop turning every
+                    # batch into hosted traffic.
+                    if not _laya_failure_recorded():
+                        LOG.warning(
+                            "laya_fallback_suppressed after %d consecutive local failures",
+                            _LAYA_FALLBACK_FAILURE_LIMIT,
+                        )
+                        raise last
             self.cooldowns[name] = self.clock() + self.settings.jev_fallback_cooldown_s
             previous = name
         raise last

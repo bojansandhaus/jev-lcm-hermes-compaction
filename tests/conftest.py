@@ -3,6 +3,8 @@ import os
 
 import pytest
 
+from jev_lcm_hermes_compaction import providers
+
 
 @pytest.fixture(autouse=True)
 def isolate(tmp_path, monkeypatch):
@@ -10,6 +12,9 @@ def isolate(tmp_path, monkeypatch):
     for key in list(os.environ):
         if key.endswith("API_KEY") or key.startswith("LCM_"):
             monkeypatch.delenv(key, raising=False)
+    # The local-hop breaker counts failures per process, so a test that fails
+    # the local provider must not charge the next test's counter.
+    monkeypatch.setattr(providers, "_laya_failure_count", 0)
 
 
 def synthetic_transport(score: float = 0.99):
