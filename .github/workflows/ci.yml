@@ -18,7 +18,11 @@ jobs:
       - run: python -m pip install -e './host' '.[dev]'
       - run: python -m mypy
       - run: python -m black --check --target-version py311 src tests
+      # PYTHONPATH deliberately omits `host`. This workflow checks the Hermes
+      # Agent checkout out into `host/`, and putting that directory on the path
+      # shadows this repository's own `tests` package with `host/tests`, so
+      # `from tests.conftest import ...` resolves against Hermes instead of here
+      # and the credential tests fail to collect. `pip install -e './host'` above
+      # already puts hermes_yaml on the path, which is all the suite needs from it.
       - run: python -m pytest tests -q --cov=jev_lcm_hermes_compaction --cov-report=term-missing --cov-fail-under=90
-        env:
-          PYTHONPATH: host
       - run: python -m build
