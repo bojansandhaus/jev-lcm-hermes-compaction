@@ -221,7 +221,7 @@ class Settings:
     jev_anchor_patterns: tuple[str, ...] = (
         r"\b[a-f0-9]{7,40}\b",
         r"\b[A-Z_]{2,}_(?:KEY|TOKEN|SECRET|URL|PATH|ID)\b",
-        r"[^.!?\n]*(?:root cause|because|constraint|must|never|always)[^.!?\n]*[.!?]?",
+        r"[^.!?\n]{0,400}(?:root cause|because|constraint|must|never|always)[^.!?\n]{0,400}[.!?]?",
         r"(?:\bline \d+\b|:[0-9]+:[0-9]+)",
         r"`[^`\n]+`",
         r"[\"'][^\"'\n]*(?:/|\\)[^\"'\n]*[\"']",
