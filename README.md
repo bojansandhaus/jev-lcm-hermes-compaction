@@ -26,6 +26,7 @@ The PR reported that a fixed `keep_threshold: 0.5` dropped 100% of 851 scored ca
 - Batches candidates and marks overflow `jev_unscored` instead of inventing a decision.
 - Accepts TypeSafe, OpenRouter, or both with automatic fallback.
 - Runs the same payload through a local Laya server instead, alone or with the hosted APIs as a fallback hop behind it, bounded by a three-failure breaker so repeated local errors stop becoming hosted requests.
+- Optionally scores through Cloudflare Clef instead, as its own provider or as a member of the fallback order, with `clef-flash` as a checkpoint setting rather than a second provider.
 - Keeps `lcm_grep` and `lcm_expand` recovery surfaces available.
 
 ## How does the pipeline work?
@@ -57,11 +58,31 @@ The shrink ladder starts with full state, then trims tool inputs and result bodi
 
 Yes, subject to the adapter contract documented in [`docs/reference.md`](docs/reference.md). A TypeSafe-only setup pins `jev_provider: typesafe`. An OpenRouter-only setup pins `jev_provider: openrouter`. With `auto`, both keys follow `jev_fallback_order`, defaulting to TypeSafe then OpenRouter. A fallback emits a sanitized line such as `jev_provider_fallback from=typesafe to=openrouter reason=429`. Key values are never printed.
 
-There are three routes, and each is a separate opt-in. They are named `jev_api`, `laya_local`, and `laya_with_jev_fallback` in the vocabulary this work shares with the DOGA fork, and `auto`, `laya`, and `laya_then_hosted` in this package's, either spelling selecting the same chain. Jev runs over a hosted API key, Laya runs locally with no key, or Laya runs locally with the hosted APIs behind it as a fallback. `jev_provider: laya` scores through a `laya-serve` process on your own machine, configured with `laya_base_url`, `laya_endpoint_path`, and `laya_model` in place of a credential, and it is the only route that never leaves the machine. `jev_provider: laya_then_hosted` puts that same local server first and then falls through to every hosted provider in `jev_fallback_order` that has a key. Laya is not a hosted Jev endpoint, it is a separate model that answers the same `/v1/systemone` contract. See the [Laya FAQ](#can-i-run-it-locally-with-laya-instead-of-a-hosted-provider) for the measured limits of the base checkpoint.
+There are four routes, and each is a separate opt-in. Three are named `jev_api`, `laya_local`, and `laya_with_jev_fallback` in the vocabulary this work shares with the DOGA fork, and `auto`, `laya`, and `laya_then_hosted` in this package's, either spelling selecting the same chain. Jev runs over a hosted API key, Laya runs locally with no key, or Laya runs locally with the hosted APIs behind it as a fallback. The fourth is Cloudflare Clef, named `clef` and `clef_api`, described in its own section below. `jev_provider: laya` scores through a `laya-serve` process on your own machine, configured with `laya_base_url`, `laya_endpoint_path`, and `laya_model` in place of a credential, and it is the only route that never leaves the machine. `jev_provider: laya_then_hosted` puts that same local server first and then falls through to every hosted provider in `jev_fallback_order` that has a key. Laya is not a hosted Jev endpoint, it is a separate model that answers the same `/v1/systemone` contract. See the [Laya FAQ](#can-i-run-it-locally-with-laya-instead-of-a-hosted-provider) for the measured limits of the base checkpoint.
 
-**The combined mode is the one Laya route that leaves your machine.** In `laya_then_hosted`, a local attempt that fails a transport, timeout, `401`, `403`, `429`, or `5xx` response sends the scored state to the hosted API as the next hop. That is the point of the mode, so it has to be named explicitly: `laya` alone sends nothing, `auto` still never selects the local route, and `jev_fallback_order` still rejects `laya`. Selecting `laya_then_hosted` with no hosted key at all is a load-time error that names the missing variables, because the mode promises a fallback that would not otherwise exist.
+**The combined mode is the one Laya route that leaves your machine.** In `laya_then_hosted`, a local attempt that fails a transport, timeout, `401`, `403`, `429`, or `5xx` response sends the scored state to the hosted API as the next hop. That is the point of the mode, so it has to be named explicitly: `laya` alone sends nothing, `auto` still never selects the local route, and `jev_fallback_order` still rejects `laya`. Selecting `laya_then_hosted` with no hosted key at all is a load-time error that names the missing variables, because the mode promises a fallback that could not otherwise exist.
 
-The same engine therefore runs Jev for Hermes over a TypeSafe key, over an OpenRouter key, or over a Laya server on your own machine, with fallback inside the hosted pair or from the local route into it. Jev threshold calibration is automatic from observed scores. Jev provider fallback covers configured transport, timeout, authentication, rate-limit, and server failures. LCM with Jev scoring changes which stale evidence stays visible; LCM continues to own storage and recall.
+The same engine therefore runs Jev for Hermes over a TypeSafe key, over an OpenRouter key, over a Cloudflare Clef model, or over a Laya server on your own machine, with fallback inside the hosted providers or from the local route into them. Jev threshold calibration is automatic from observed scores. Jev provider fallback covers configured transport, timeout, authentication, rate-limit, and server failures. LCM with Jev scoring changes which stale evidence stays visible; LCM continues to own storage and recall.
+
+### Can I use Cloudflare Clef instead of a Jev provider?
+
+Yes, and it needs neither a TypeSafe nor an OpenRouter account. Cloudflare Workers AI hosts the Clef decision model and it answers the same System One shaped typed questions, so this package sends it the same `model`, `state`, and `questions` body and reads the same `answers` mapping back.
+
+```yaml
+context:
+  engine: jev-lcm
+jev_lcm:
+  jev_provider: clef        # or the alias clef_api
+  clef_model: clef          # or clef-flash
+```
+
+Set two environment variables through your secret manager: `CLOUDFLARE_API_TOKEN`, a Cloudflare API token with the Account > Workers AI > Read permission, and `CLOUDFLARE_ACCOUNT_ID`, the account id, which is configuration rather than a secret but is required because the endpoint is per account. Pinning `clef` with either missing fails at load and names the variable, never its value. `clef` can also be one member of `jev_fallback_order`, for example `[clef, typesafe, openrouter]`, and an uncredentialed `clef` is filtered out of a chain just as an uncredentialed TypeSafe is.
+
+`clef-flash` is a **checkpoint of that one provider**, not a second provider: it changes the endpoint and the `model` field, and it is never a mode value, an alias, or a chain member.
+
+**Selecting `clef` sends your conversation content to Cloudflare.** The scored state, the candidate text, and the protected anchors leave the machine on every request, and this package applies no redaction to them. `laya` remains the only route that never leaves the machine. Review Cloudflare's retention terms for the account first.
+
+**No live Clef call is part of this work.** No Cloudflare credential available on the machine that built it is authorized for Workers AI, so every Clef test runs against an injected transport and the wire contract is taken from Cloudflare's [clef](https://developers.cloudflare.com/workers-ai/models/clef/) and [clef-flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/) documentation. Clef's retention quality, latency, and cost on this workload are unmeasured. What is verified and what is not is recorded in [`docs/verification.md`](docs/verification.md).
 
 ## Jev-LCM, Jev-alone, and LCM-alone
 
@@ -118,7 +139,7 @@ A directory install works as well: place `plugin.yaml`, `plugin.py`, and `__init
 | Batching | `jev_batch_window_turns`, `jev_max_candidates_per_batch`, `jev_urgent_context_ratio` |
 | Shaping | `max_state_tokens`, `max_request_tokens`, `truncate_head_chars`, `min_result_chars`, `request_timeout_s` |
 
-The complete defaults table is in [`docs/reference.md`](docs/reference.md). `jev_provider` accepts `auto`, `typesafe`, `openrouter`, `laya`, and `laya_then_hosted`; the first four keep the behaviour described above and the last one is the explicit local-first route with the hosted APIs behind it. The three arrangements also answer to the alternative names `jev_api`, `laya_local`, and `laya_with_jev_fallback`, which resolve to `auto`, `laya`, and `laya_then_hosted`; any other value is rejected at load with the accepted names in the error. The settings validator rejects unsafe endpoint paths and non-local plain HTTP.
+The complete defaults table is in [`docs/reference.md`](docs/reference.md). `jev_provider` accepts `auto`, `typesafe`, `openrouter`, `laya`, `laya_then_hosted`, and `clef`; the first five keep the behaviour described above and the sixth is the Cloudflare Clef route, selectable on its own or as a member of `jev_fallback_order`. The four arrangements also answer to the alternative names `jev_api`, `laya_local`, `laya_with_jev_fallback`, and `clef_api`, which resolve to `auto`, `laya`, `laya_then_hosted`, and `clef`; any other value is rejected at load with the accepted names in the error. `clef_model` selects the checkpoint, `clef` or `clef-flash`, and is not a provider name. The settings validator rejects unsafe endpoint paths and non-local plain HTTP.
 
 ## Which commands and tools are available?
 

@@ -1,4 +1,4 @@
-"""Two Decisions providers with bounded retries and session-local cooldowns."""
+"""Three Decisions providers with bounded retries and session-local cooldowns."""
 
 import json
 import logging
@@ -7,7 +7,17 @@ import re
 import threading
 import time
 from typing import Any, Callable, Mapping
-from .jev_client import ProviderError, parse_answers, post
+from .jev_client import (
+    CLEF_ACCOUNT_ENV,
+    CLEF_TOKEN_ENV,
+    ClefError,
+    ProviderError,
+    clef_question_ids,
+    clef_result,
+    clef_run_url,
+    parse_answers,
+    post,
+)
 from .settings import Settings, endpoint
 
 LOG = logging.getLogger(__name__)
@@ -15,7 +25,13 @@ ENV = {
     "typesafe": "TYPESAFE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "laya": "LAYA_API_KEY",
+    "clef": CLEF_TOKEN_ENV,
 }
+# The Cloudflare account id is not a secret: it is a path segment, it is
+# configuration the operator already has in the dashboard, and nothing can be
+# scored without it. It is read separately from the credential map because the
+# chain decides membership on keys alone.
+ACCOUNT_ENV = {"clef": CLEF_ACCOUNT_ENV}
 # A provider bound to the loopback interface carries no credential requirement:
 # an empty key means "send no Authorization header", not "disabled".
 KEYLESS = frozenset({"laya"})
@@ -101,6 +117,72 @@ class LayaProvider(JevProvider):
     def __init__(self, settings: Settings):
         self.url = endpoint(settings.laya_base_url, settings.laya_endpoint_path)
         self.model = settings.laya_model
+
+
+class ClefProvider(JevProvider):
+    """Cloudflare Workers AI Clef, reached over the Jev Decisions wire contract.
+
+    ``clef`` answers the same System One shaped typed questions as the hosted
+    Jev providers, so this provider sends the same ``model``, ``state``, and
+    ``questions`` body and reads the same ``answers`` mapping back. Three things
+    are specific to this wire:
+
+    - The endpoint is per account, so ``CLOUDFLARE_ACCOUNT_ID`` is configuration
+      the URL cannot be built without and ``CLOUDFLARE_API_TOKEN`` is the
+      credential. Both are checked before any request and the failure names the
+      variable, never a value.
+    - Clef constrains question ids, so ids are mapped onto its alphabet and
+      mapped back before the caller sees them.
+    - Clef may answer a ``choice`` or an ordered ``score`` as well as a ``noul``,
+      so the response is validated against the scale each sent question declared.
+
+    ``clef_model`` names the checkpoint: the 27B ``clef``, or ``clef-flash`` for
+    a latency-bound path. Both answer the same contract, so the checkpoint is a
+    setting of this one provider and never a separate chain member.
+    """
+
+    name = "clef"
+
+    def __init__(self, settings: Settings, account: str = ""):
+        self.base_url = settings.clef_base_url
+        self.model = settings.clef_model
+        self.account = account
+
+    def score(
+        self,
+        state: Any,
+        questions: dict[str, Any],
+        key: str,
+        timeout: float,
+        transport: Transport,
+    ) -> dict[str, float]:
+        if not key:
+            raise ClefError(
+                "clef_provider selected but " + CLEF_TOKEN_ENV + " is not set",
+                "401",
+            )
+        if not self.account:
+            raise ClefError(
+                "clef_provider selected but " + CLEF_ACCOUNT_ENV + " is not set",
+                "401",
+            )
+        sent, restore = clef_question_ids(questions)
+        url = clef_run_url(self.base_url, self.account, self.model)
+        payload = {"model": self.model, "state": state, "questions": sent}
+        try:
+            response = transport(url, key, payload, timeout)
+        except Exception as error:
+            # Clef is a hosted route, so the state has already left the machine
+            # by the time this runs. Only the exception class is logged: the
+            # message of a transport failure can quote the URL, the header, or
+            # the body it was carrying, and the body is the content about to be
+            # compacted. The chain still records ``ProviderError.reason``, which
+            # is drawn from a fixed set, so a Clef failure behaves exactly as a
+            # TypeSafe failure does for fallback, cooldown, and diagnostics.
+            LOG.warning("clef_provider_failed exception=%s", type(error).__name__)
+            raise
+        scores = parse_answers(clef_result(response), list(sent), sent)
+        return {restore[wire]: value for wire, value in scores.items()}
 
 
 NATIVE_DECISIONS_PATH = "/alpha/decisions"
@@ -227,9 +309,12 @@ class ProviderChain:
         clock: Callable[[], float] = time.monotonic,
     ):
         self.settings, self.transport, self.clock = settings, transport, clock
+        environment = env if env is not None else os.environ
         self._keys = {
-            name: (env if env is not None else os.environ).get(var, "").strip()
-            for name, var in ENV.items()
+            name: environment.get(var, "").strip() for name, var in ENV.items()
+        }
+        self._accounts = {
+            name: environment.get(var, "").strip() for name, var in ACCOUNT_ENV.items()
         }
         if settings.jev_provider == "laya":
             # Laya runs locally in place of the hosted Jev providers, so the
@@ -253,6 +338,16 @@ class ProviderChain:
         else:
             if not self._keys[settings.jev_provider]:
                 raise ValueError("missing " + ENV[settings.jev_provider])
+            if (
+                settings.jev_provider in ACCOUNT_ENV
+                and not self._accounts[settings.jev_provider]
+            ):
+                # A pinned provider promises a usable route, so the account id
+                # is checked at load beside the key. In a chain the membership
+                # decision is made on keys alone, so a member without an account
+                # joins and then refuses each request instead, naming the same
+                # variable.
+                raise ValueError("missing " + ACCOUNT_ENV[settings.jev_provider])
             self.order = [settings.jev_provider]
         if not settings.jev_fallback_enabled:
             self.order = self.order[:1]
@@ -260,6 +355,7 @@ class ProviderChain:
             "typesafe": TypeSafeProvider(settings),
             "openrouter": OpenRouterProvider(settings),
             "laya": LayaProvider(settings),
+            "clef": ClefProvider(settings, self._accounts.get("clef", "")),
         }
         self.cooldowns: dict[str, float] = {}
         self.errors: dict[str, str] = {}
@@ -271,6 +367,9 @@ class ProviderChain:
         return {
             "order": self.order,
             "keys_present": [ENV[p] for p in ENV if self._keys[p]],
+            "configuration_present": [
+                var for name, var in ACCOUNT_ENV.items() if self._accounts.get(name)
+            ],
             "cooldown_seconds": {
                 p: max(0.0, t - self.clock()) for p, t in self.cooldowns.items()
             },

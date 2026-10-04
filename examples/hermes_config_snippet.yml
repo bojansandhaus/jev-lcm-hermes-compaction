@@ -12,7 +12,19 @@ jev_lcm:
   jev_batch_window_turns: 3
   jev_max_candidates_per_batch: 300
   hint_budget_tokens: 4000
+  # Optional: select Cloudflare Clef as a provider.
+  #
+  # jev_provider: clef          # or the alias clef_api
+  # clef_base_url: https://api.cloudflare.com/client/v4/accounts
+  # clef_model: clef            # or clef-flash for a latency-bound path
+  #
+  # Selecting clef sends the scored state to api.cloudflare.com. Both
+  # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set or the chain
+  # fails at load, naming the missing variable.
 
 # Supply these outside this file through a secret manager:
 # TYPESAFE_API_KEY
 # OPENROUTER_API_KEY
+# LAYA_API_KEY
+# CLOUDFLARE_API_TOKEN          # Cloudflare Workers AI credential
+# CLOUDFLARE_ACCOUNT_ID         # Cloudflare account id; configuration, not a secret

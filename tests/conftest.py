@@ -12,6 +12,12 @@ def isolate(tmp_path, monkeypatch):
     for key in list(os.environ):
         if key.endswith("API_KEY") or key.startswith("LCM_"):
             monkeypatch.delenv(key, raising=False)
+    # Clef's credential is named _API_TOKEN rather than _API_KEY, and its
+    # account id is configuration rather than a credential. Both are stripped by
+    # name so a developer's real Cloudflare environment cannot reach a test that
+    # asserts an empty or a synthetic provider set.
+    for key in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
+        monkeypatch.delenv(key, raising=False)
     # The local-hop breaker counts failures per process, so a test that fails
     # the local provider must not charge the next test's counter.
     monkeypatch.setattr(providers, "_laya_failure_count", 0)

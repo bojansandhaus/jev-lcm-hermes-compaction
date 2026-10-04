@@ -14,10 +14,12 @@ Defaults below are read from `settings.py`.
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| `jev_provider` | `auto` | `auto`, `typesafe`, `openrouter`, `laya`, or `laya_then_hosted` (Laya first, then the keyed hosted providers). The mode aliases `jev_api`, `laya_local`, and `laya_with_jev_fallback` resolve to `auto`, `laya`, and `laya_then_hosted`. Anything else is rejected at load with the accepted names in the error. |
+| `jev_provider` | `auto` | `auto`, `typesafe`, `openrouter`, `laya`, `laya_then_hosted`, or `clef`. The mode aliases `jev_api`, `laya_local`, `laya_with_jev_fallback`, and `clef_api` resolve to `auto`, `laya`, `laya_then_hosted`, and `clef`. Anything else is rejected at load with the accepted names in the error. |
 | `TYPESAFE_API_KEY` | unset | TypeSafe credential, supplied through the environment or secret manager. |
 | `OPENROUTER_API_KEY` | unset | OpenRouter credential, supplied through the environment or secret manager. |
 | `LAYA_API_KEY` | unset | Optional bearer for a local `laya-serve` started with `LAYA_API_KEY`. The local provider needs no credential. |
+| `CLOUDFLARE_API_TOKEN` | unset | Cloudflare Workers AI credential for Clef. Needs the Account > Workers AI > Read permission. |
+| `CLOUDFLARE_ACCOUNT_ID` | unset | Cloudflare account id. This is configuration, not a secret, but the endpoint is per account so a Clef request cannot be built without it. |
 | `typesafe_base_url` | `https://api.typesafe.ai/v1` | TypeSafe base URL. |
 | `openrouter_base_url` | `https://openrouter.ai/api` | OpenRouter base URL. |
 | `openrouter_endpoint_path` | `/alpha/decisions` | OpenRouter path. Any other value selects the chat completions adapter. |
@@ -27,8 +29,10 @@ Defaults below are read from `settings.py`.
 | `laya_base_url` | `http://127.0.0.1:8000` | Local `laya-serve` base URL. Plain HTTP is accepted for loopback only. |
 | `laya_endpoint_path` | `/v1/systemone` | Local server path, which is the Decisions protocol `laya-serve` publishes. |
 | `laya_model` | `convaiinnovations/laya` | Laya checkpoint. `english`, `multilingual`, and `typed-decisions` name a checkpoint; any other value routes by script and language. |
+| `clef_base_url` | `https://api.cloudflare.com/client/v4/accounts` | Shared base of the per-account Clef path. The account id and the model complete it. Plain HTTP is rejected: a hosted route that carries conversation text must use HTTPS. |
+| `clef_model` | `clef` | Clef checkpoint, either `clef` or `clef-flash`. This is a checkpoint of one provider, not a second provider, so it is never a chain member and never an alias. Any other value is rejected at load. |
 | `jev_fallback_enabled` | `true` | Permit fallback to the next configured provider. |
-| `jev_fallback_order` | `typesafe, openrouter` | Ordered preference inside the hosted pair. The local route is not a chain member; `laya_then_hosted` places it in front of this order. |
+| `jev_fallback_order` | `typesafe, openrouter` | Ordered preference inside the hosted providers. The local route is not a chain member; `laya_then_hosted` places it in front of this order. `clef` is accepted here as a member, and `clef-flash` is not a member under any spelling. |
 | `jev_fallback_on` | transport, timeout, 401, 403, 429, 5xx | Errors eligible for fallback. |
 | `jev_fallback_cooldown_s` | `60` | Session-local cooldown after a failed provider. |
 | `jev_fallback_max_retries` | `1` | Retries for the final available provider. |
@@ -52,7 +56,7 @@ Defaults below are read from `settings.py`.
 | `hint_budget_tokens` | `4000` | Bound for injected Jev hints. |
 | `lcm_*` | host defaults | LCM settings remain available; do not assume vendor defaults match a host release. |
 
-Provider keys are never included in diagnostics. An explicitly pinned provider fails at load when its key is absent. In `auto` mode, providers with absent keys are filtered out. With both absent, Jev is disabled and LCM continues without a Jev request. `laya_then_hosted` fails at load when no hosted key is present and names the missing variables, because that mode promises a hosted fallback that could not otherwise exist.
+Provider keys are never included in diagnostics. An explicitly pinned provider fails at load when its key is absent. In `auto` mode, providers with absent keys are filtered out. With both absent, Jev is disabled and LCM continues without a Jev request. `laya_then_hosted` fails at load when no hosted key is present and names the missing variables, because that mode promises a hosted fallback that could not otherwise exist. Pinning `clef` fails at load on either missing variable, the token or the account id, and `diagnostics()` reports the two in separate fields: `keys_present` for credentials and `configuration_present` for the account id. Both report variable names only.
 
 ## Decision model
 
@@ -85,7 +89,7 @@ The batcher flushes on the turn window, urgent context pressure, shutdown, and `
 
 ## Providers and wire boundaries
 
-The provider abstraction sends a Decisions-shaped payload containing `model`, `state`, and `questions`. TypeSafe uses the configured TypeSafe base plus `jev_endpoint_path`. OpenRouter uses `openrouter_base_url` plus `openrouter_endpoint_path`, with the configured OpenRouter model. Laya uses `laya_base_url` plus `laya_endpoint_path`, with `laya_model`, and carries no credential unless `LAYA_API_KEY` is set.
+The provider abstraction sends a Decisions-shaped payload containing `model`, `state`, and `questions`. TypeSafe uses the configured TypeSafe base plus `jev_endpoint_path`. OpenRouter uses `openrouter_base_url` plus `openrouter_endpoint_path`, with the configured OpenRouter model. Laya uses `laya_base_url` plus `laya_endpoint_path`, with `laya_model`, and carries no credential unless `LAYA_API_KEY` is set. Clef uses `clef_base_url` plus the account id from `CLOUDFLARE_ACCOUNT_ID`, with `clef_model`, and sends the same three body fields.
 
 ### OpenRouter surfaces
 
@@ -100,9 +104,9 @@ The chat adapter tolerates fenced JSON and wraps scalar answers, and it passes a
 
 On 2026-09-21 OpenRouter answered a chat completions request for the configured model with `400 ~typesafe/jev-latest is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.` The shipped default therefore points at the native surface, and the chat adapter is selectable rather than default. Response parity between the two surfaces is asserted in `tests/test_providers.py`.
 
-### The three arrangements and the names that select them
+### The arrangements and the names that select them
 
-There are three mutually exclusive arrangements, and two vocabularies for them.
+There are four mutually exclusive arrangements, and two vocabularies for them.
 Every value in the left table resolves to exactly one chain, one privacy
 boundary, and one local-hop breaker.
 
@@ -111,15 +115,102 @@ boundary, and one local-hop breaker.
 | Hosted Jev over the configured keys | `auto` | `jev_api` |
 | Laya local, nothing leaves the machine | `laya` | `laya_local` |
 | Laya local, then the keyed hosted providers on a local failure | `laya_then_hosted` | `laya_with_jev_fallback` |
+| Cloudflare Clef alone, at Cloudflare | `clef` | `clef_api` |
 
 `typesafe` and `openrouter` still pin one hosted provider and are unchanged;
-they are narrower forms of the hosted arrangement rather than a fourth
-arrangement. An alias is resolved in `Settings.__post_init__` to its canonical
-value, so `Settings(jev_provider="laya_local") == Settings(jev_provider="laya")`
+they are narrower forms of the hosted arrangement rather than a fifth
+arrangement. `clef` also pins one provider, and `clef_api` is its alias, so
+`Settings(jev_provider="clef_api") == Settings(jev_provider="clef")` and both
+build the same single-provider chain. An alias is resolved in
+`Settings.__post_init__` to its canonical value, so
+`Settings(jev_provider="laya_local") == Settings(jev_provider="laya")`
 and every consumer downstream reads one spelling. Every value that was accepted
 before this release keeps its behaviour. A value that is not in the table above
 raises `ValueError` at load, and the message lists the accepted values and the
 aliases it could have meant.
+
+### Cloudflare Clef
+
+`jev_provider: clef` scores through [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/models/clef/),
+which hosts the Clef decision model. Clef answers the same System One shaped
+typed questions as the hosted Jev providers, so the request and the response
+path are identical to every other provider except for three things that are its
+own.
+
+**The endpoint is per account.** There is no shared Clef endpoint: the URL is
+`https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/@cf/cloudflare/{model}`.
+`CLOUDFLARE_ACCOUNT_ID` is therefore a required part of the path and not an
+optional setting. It is configuration rather than a secret, but it is
+interpolated into a URL, so it is held to a narrow shape: 1 to 64 characters of
+`A-Z`, `a-z`, `0-9`, `_`, or `-`. Anything else is refused before a request is
+built, and the error names the variable rather than the value.
+`CLOUDFLARE_API_TOKEN` is the credential, needs the Account > Workers AI > Read
+permission, and is sent as `Authorization: Bearer`. Both are checked before any
+request; pinning `clef` with either missing raises `ValueError` at load naming
+it.
+
+**The body is the same three fields.** `model`, `state`, and `questions`, with
+`model` set to the selected checkpoint. Nothing is added for Clef.
+
+**Question ids are constrained.** Cloudflare accepts letters, digits, `_`, `.`,
+and `-` in a question id, at most 100 characters, and at most 64 questions per
+request. This package builds question ids as `<sha256>:<name>`, so the colon it
+has always sent is illegal on this wire. An id Clef already accepts travels
+unchanged; anything else is renamed to `clefq<n>` and mapped back before the
+caller sees the answer, so no caller ever observes a rename. Every caller id is
+reserved before any generated name is handed out, so a generated id cannot
+shadow a caller's own question and two questions cannot collapse onto one
+answer. The caller's own spelling still reaches the model inside the
+instruction text. A batch over 64 questions fails before any request, naming
+`jev_max_candidates_per_batch`, rather than silently sending fewer questions and
+leaving candidates unscored without saying so.
+
+| Question type | Answer read | Reported as | Validated against |
+|---|---|---|---|
+| `noul` | `noul` | the probability | `0..1` |
+| `choice` | `choice` | the index of that label in `criteria` | the label must be one of `criteria` |
+| `score` | `score` | the index, on the scale `criteria` defines | `0..len(criteria)-1` |
+
+The bounds come from one helper, `index_scale`, rather than from a per-type
+copy, and they are derived from the question that was sent. An ordinal answer
+therefore keeps its own scale: a score of `2` over three criteria is accepted
+and reported as `2.0`, and the same value over two criteria is rejected. An
+answer type this package does not send is read as a `noul` probability, which is
+what every other provider in this package returns.
+
+**Both response shapes are accepted.** The bare model output carries `answers`,
+`model`, and `usage` at the top level. Cloudflare's general REST surface wraps
+the same object as `{"success": true, "result": {...}}`. Both parse and the
+top-level `answers` mapping is preferred, falling back to `result.answers`. A
+`success: false` envelope is refused with Cloudflare's own error codes surfaced,
+for example `Cloudflare Workers AI refused the request (code 7003)`, because
+those are more actionable than a parse failure. The reason that feeds fallback,
+cooldown, and diagnostics stays inside `ProviderError`'s fixed vocabulary, so a
+Clef failure behaves exactly as a TypeSafe failure does.
+
+**Clef-flash is a checkpoint, not a provider.** `clef_model: clef-flash` selects
+the 9B variant Cloudflare publishes for latency-bound paths and routes to the
+`.../clef-flash` endpoint with `"model": "clef-flash"` in the body. It is a
+setting of the one `clef` provider: it is never a `PROVIDER_MODES` value, never
+an alias, and never a member of `jev_fallback_order`. An unknown checkpoint is
+rejected at load.
+
+**Privacy consequence, stated plainly.** Selecting `clef` sends the scored state,
+the candidate text, and the anchors to `api.cloudflare.com`. That is the point
+of the route. `clef` alone has no fallback, so a Clef failure does not become a
+request to another provider; it raises. If `clef` is placed in
+`jev_fallback_order`, it inherits the existing trigger set and a failure on a
+trigger moves the same state to the next member, which is the same consequence
+`laya_then_hosted` already documents. `laya` remains the only route that never
+leaves the machine.
+
+Nothing in this subsection was verified against a live Clef service. No
+Cloudflare credential available on the machine that built this is authorized for
+Workers AI: every candidate token returns HTTP 401 `Authentication error`. The
+wire contract above is taken from the two Cloudflare model pages, cited at the
+top of the section and again in `docs/verification.md`, and is exercised by
+`tests/test_clef_provider.py` and `evaluation/live_clef.py` against an injected
+transport. No test sends anything off the machine.
 
 ### Local Laya server
 
@@ -132,7 +223,7 @@ aliases it could have meant.
 | `laya_model` | `convaiinnovations/laya` (route by script and language), `english`, `multilingual`, or `typed-decisions`. |
 | `LAYA_API_KEY` | Sent only when the server was started with `LAYA_API_KEY`. Diagnostics report the variable name, never its value. |
 
-The local route replaces the hosted pair instead of joining it. `jev_provider: laya` builds a chain of exactly one provider, `auto` never selects it, and `jev_fallback_order` accepts only `typesafe` and `openrouter`. `laya_then_hosted` is the separate explicit mode that joins the two, and it is described in the next subsection. The wire client omits the `Authorization` header entirely for an empty key, so a server started without `LAYA_API_KEY` accepts the request unchanged.
+The local route replaces the hosted pair instead of joining it. `jev_provider: laya` builds a chain of exactly one provider, `auto` never selects it, and `jev_fallback_order` accepts only `typesafe`, `openrouter`, and `clef`. `laya_then_hosted` is the separate explicit mode that joins the local route with the keyed hosted providers, and it is described in the next subsection. The wire client omits the `Authorization` header entirely for an empty key, so a server started without `LAYA_API_KEY` accepts the request unchanged.
 
 **Quality evidence for this route, in order of strength.** The strongest
 available comparison is the matched 100-question, three-mode benchmark published
@@ -173,7 +264,8 @@ questions:
 |---|---|---|
 | `laya` | `laya` | Never. |
 | `laya_then_hosted` | `laya`, then the keyed `jev_fallback_order` members | On a trigger listed in `jev_fallback_on`: transport, timeout, `401`, `403`, `429`, or `5xx`. |
-| `auto` | the keyed `jev_fallback_order` members | Yes, by design. It never selects a Laya route. |
+| `auto` | the keyed `jev_fallback_order` members | Yes, by design. It never selects a Laya route and never selects `clef` unless `clef` is named in `jev_fallback_order`. |
+| `clef` | `clef` | Yes, to Cloudflare on every request. There is no fallback member, so a failure raises instead of calling another provider. |
 
 **Privacy consequence, stated plainly.** In `laya_then_hosted`, a local attempt that fails a transport, timeout, `401`, `403`, `429`, or `5xx` response sends the scored state to a hosted API. That is the point of the mode, and it is why the mode is explicit rather than selected automatically. The plain `laya` mode never leaves the machine. A local failure that is not on the trigger list, such as the `404` from a shared default port or a malformed answer, stops at the local route instead of escalating. Selecting `laya_then_hosted` with no hosted key at all raises `ValueError` at load and names the missing environment variables, because the mode promises a fallback that would not otherwise exist; `LAYA_API_KEY` alone does not satisfy it.
 
@@ -217,13 +309,25 @@ suppression line is `laya_fallback_suppressed after 3 consecutive local failures
 `tests/test_fallback.py` pins this by driving a batch whose state and candidate
 text contain a sentinel and asserting the sentinel never appears in `caplog`.
 
+Clef adds one line, `clef_provider_failed exception=<Type>`, and it is narrower
+than the others on purpose. A Clef request carries the conversation text that is
+about to be compacted, and by the time a transport failure surfaces that text has
+already left the machine, so the only safe thing to report is the exception class
+itself. The URL, the account id, the token, the request body, and the exception
+message are all excluded; a `urllib` message can quote the request object. The
+message an operator sees instead comes from `ClefError`, whose text is composed
+of provider names, variable names, counts, and Cloudflare error codes only.
+`tests/test_clef_provider.py` drives a Clef failure whose exception message
+contains the token, the URL, and a sentinel from the state, and asserts that
+none of the three reaches `caplog` or `diagnostics()`.
+
 ## Metrics and diagnostics
 
 `jev_stats` reports the counters below when the plugin is active:
 
 `jev_candidates_total`, `jev_keep_call_count`, `jev_keep_result_count`, `jev_anchor_count`, `jev_unscored_count`, `jev_calls`, `jev_pruned_units`, `jev_fallbacks`, `lcm_summary_nodes_created`, `lcm_nodes_created`, `lcm_text_floor_tokens`, `jev_provider_fallback_count`, `jev_threshold_current`, `jev_threshold_calibrated`, `jev_provider_primary`, `lcm_recall_at_budget`, and `lcm_freed_per_compaction`.
 
-After three consecutive compactions freeing less than 20 percent, the current metrics implementation emits a warning recommending review of the LCM context threshold or summary depth. This is an operator signal, not a performance claim. `jev_providers` reports provider order, environment-variable names present, cooldowns, last errors, and last provider. It must never print key values.
+After three consecutive compactions freeing less than 20 percent, the current metrics implementation emits a warning recommending review of the LCM context threshold or summary depth. This is an operator signal, not a performance claim. `jev_providers` reports provider order, environment-variable names present, non-credential configuration variable names present, cooldowns, last errors, and last provider. It must never print key values, and it must never print the Cloudflare account id: `configuration_present` reports the variable name, as `keys_present` reports a credential's name without its value.
 
 ## Upstream lineage and sources
 
@@ -232,6 +336,7 @@ After three consecutive compactions freeing less than 20 percent, the current me
 - [hermes-jev-compact](https://github.com/TheEpTic/hermes-plugins/tree/main/hermes-jev-compact), Hermes seam and fallback lineage.
 - [hermes-lcm](https://github.com/stephenschoettler/hermes-lcm), LCM storage, DAG, and recall lineage.
 - [jev-decisions](https://github.com/bojansandhaus/jev-decisions), documentation and Decisions-shaped API context.
+- [Cloudflare Workers AI: clef](https://developers.cloudflare.com/workers-ai/models/clef/) and [clef-flash](https://developers.cloudflare.com/workers-ai/models/clef-flash/), the hosted Clef endpoint, body, answer types, and question-id constraints the Clef provider implements.
 - [DeepSeek Harness CLI reference](https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/reference/README.md), for the DSH port's related profile semantics.
 
 All benchmark numbers from the brief belong to the cited PR unless an evaluation run in this repository records the fixture, command, environment, and output.

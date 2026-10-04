@@ -1,5 +1,5 @@
 name: jev-lcm
-version: 1.0.0rc4
+version: 1.0.0rc5
 description: Calibrated Jev ranking before lossless LCM condensation
 author: Bojan Sandhaus
 entrypoint: plugin.py

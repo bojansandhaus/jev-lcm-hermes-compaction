@@ -6,7 +6,7 @@ This is a release candidate, not a production-certified replacement.
 
 Tests use synthetic text and scores. HTTP tests use loopback servers. They do not measure provider quality, real billing, or comparative performance against private transcripts.
 
-Selected conversation text is sent to the configured provider. This is not an automatic secret-redaction system. The local raw archive is not encrypted by this package. Use a private data directory. In `laya_then_hosted`, a local attempt that fails a configured trigger sends the state to a hosted provider as well; `laya` alone is the only route that stays on the machine.
+Selected conversation text is sent to the configured provider. This is not an automatic secret-redaction system. The local raw archive is not encrypted by this package. Use a private data directory. In `laya_then_hosted`, a local attempt that fails a configured trigger sends the state to a hosted provider as well; `laya` alone is the only route that stays on the machine. Selecting `clef` sends the state, the candidate text, and the protected anchors to `api.cloudflare.com` on every request, with no redaction step, and naming `clef` in `jev_fallback_order` gives it the same trigger-driven escalation to the next member.
 
 ## What the local route is not
 
@@ -15,6 +15,8 @@ The strongest quality evidence for local Laya is the matched 100-question, three
 The three-consecutive-failure breaker bounds repeated remote egress after local errors. It cannot detect a local answer that is valid and wrong. Nothing in this package scores a local answer for correctness before accepting it, and no threshold is tuned by the breaker. The count is per process, so a restart clears it, and a cooldown that is longer than the interval between failures means the breaker counts fewer failures than a naive reading of the traffic would suggest.
 
 Logging is category-only by construction. A `ProviderError` reason is drawn from a fixed set and clamped to `transport_error` for anything else, provider names and counters are the only other values formatted into a scoring-path log line, and the state, candidate text, and answers are not. That is a property of this package's own modules; the vendored LCM snapshot is unchanged upstream code whose own logging this release did not audit or modify.
+
+Cloudflare Clef is a new hosted route, and no live Clef request has been made. No Cloudflare credential available on the machine that built the Clef provider is authorized for Workers AI: every candidate token returns HTTP 401 `Authentication error`, so its wire contract is taken from Cloudflare's model documentation and exercised only against an injected transport. Clef's retention quality, latency, and Workers AI billing on this workload are unmeasured, no Clef score has ever been produced here, and the behaviour of a 64-question request against the 65536-token context window is untested. Whether renaming a question id to Clef's alphabet changes a judgment is also untested. `docs/verification.md` records each of these under "Not established".
 
 Hermes uses bundled upstream LCM. DSH uses its native BasicCompactionEngine with a separate SQLite archive and summary links, not a full TypeScript port of Hermes LCM.
 

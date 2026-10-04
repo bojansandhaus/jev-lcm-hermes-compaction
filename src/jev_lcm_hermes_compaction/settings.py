@@ -5,7 +5,7 @@ from urllib.parse import urlsplit, unquote
 
 # The named arrangements, in this package's vocabulary. Each entry in
 # ``PROVIDER_MODES`` is canonical and keeps its own chain. ``PROVIDER_ALIASES``
-# carries the alternative names for the same three arrangements, so an operator
+# carries the alternative names for the same arrangements, so an operator
 # can write the mode they mean and get the chain they expect.
 PROVIDER_MODES: tuple[str, ...] = (
     "auto",
@@ -13,12 +13,18 @@ PROVIDER_MODES: tuple[str, ...] = (
     "openrouter",
     "laya",
     "laya_then_hosted",
+    "clef",
 )
 PROVIDER_ALIASES: dict[str, str] = {
     "jev_api": "auto",
     "laya_local": "laya",
     "laya_with_jev_fallback": "laya_then_hosted",
+    "clef_api": "clef",
 }
+# The Clef checkpoints Cloudflare publishes. This is a checkpoint of one
+# provider rather than a provider of its own, so it is a model setting and
+# never a chain member.
+CLEF_MODELS: tuple[str, ...] = ("clef", "clef-flash")
 
 
 def canonical_provider(value: object) -> str | None:
@@ -63,6 +69,11 @@ class Settings:
     laya_base_url: str = "http://127.0.0.1:8000"
     laya_endpoint_path: str = "/v1/systemone"
     laya_model: str = "convaiinnovations/laya"
+    # Clef is hosted per account. The base is the shared part of that path; the
+    # account id is read from the environment beside the token, because it is
+    # configuration a user already has rather than something to store twice.
+    clef_base_url: str = "https://api.cloudflare.com/client/v4/accounts"
+    clef_model: str = "clef"
     jev_fallback_enabled: bool = True
     jev_fallback_order: tuple[str, ...] = ("typesafe", "openrouter")
     jev_fallback_on: tuple[str, ...] = (
@@ -113,9 +124,16 @@ class Settings:
         if (
             not self.jev_fallback_order
             or len(set(self.jev_fallback_order)) != len(self.jev_fallback_order)
-            or any(p not in ("typesafe", "openrouter") for p in self.jev_fallback_order)
+            or any(
+                p not in ("typesafe", "openrouter", "clef")
+                for p in self.jev_fallback_order
+            )
         ):
             raise ValueError("invalid jev_fallback_order")
+        if self.clef_model not in CLEF_MODELS:
+            raise ValueError(
+                "invalid clef_model; expected one of " + ", ".join(CLEF_MODELS)
+            )
         for value in (
             self.keep_threshold,
             self.keep_threshold_max,
@@ -148,6 +166,7 @@ class Settings:
         endpoint(self.typesafe_base_url, self.jev_endpoint_path)
         endpoint(self.openrouter_base_url, self.openrouter_endpoint_path)
         endpoint(self.laya_base_url, self.laya_endpoint_path)
+        endpoint(self.clef_base_url, "/" + "probe")
 
 
 def endpoint(base: str, path: str) -> str:
