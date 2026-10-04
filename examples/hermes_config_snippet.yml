@@ -35,7 +35,7 @@ jev_lcm:
   # against an allowlist, so a new engine works by configuration alone.
   #
   # jev_provider: local_only     # or local_with_api_fallback for a hosted hop
-  # local_model: laya            # or kev, tev1, jeff-gemma4-e2b, ...
+  # local_model: laya            # or any pre-deterministic routing model
   # laya_base_url: http://127.0.0.1:8000
   # request_timeout_s: 120
   #

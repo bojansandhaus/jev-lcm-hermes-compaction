@@ -8,7 +8,7 @@ The package is opt-in through `context.engine: jev-lcm`; installation does not c
 
 The Hermes package currently vendors an LCM implementation and exposes the integration through `plugin.py`, `compressor.py`, `jev_client.py`, `providers.py`, `state_shaper.py`, `anchors.py`, `calibration.py`, `batcher.py`, `metrics.py`, `decisions.py`, and `settings.py`. Read the source when a host-version detail matters; this document does not promise an installation or live-provider result.
 
-Every provider this reference describes is a [System One decision model](https://systemonemodels.org/guides/what-is-a-system-one-model/), also written a typed decision model: a model that reads the state you give it, answers typed `choice`, `score`, and `noul` questions, and returns each answer with a probability rather than prose. The members reachable from this package are Jev (TypeSafe AI or OpenRouter, hosted, closed weights), Clef and Clef Flash (Cloudflare Workers AI), and the local engines Laya (open weights, the default), Kev (open weights, 0.8B to 27B on Qwen3.5 and Qwen3.8 bases), and Tev1 (Together AI, Qwen3.5-based, open weights). Category membership and the shared `/v1/systemone` wire contract are documented claims from those projects and the cited index, not measurements made here. Jev is one vendor's member of the category, not the category's name.
+Every provider this reference describes is a [System One decision model](https://systemonemodels.org/guides/what-is-a-system-one-model/), also written a typed decision model: a model that reads the state you give it, answers typed `choice`, `score`, and `noul` questions, and returns each answer with a probability rather than prose. The members reachable from this package are Jev (TypeSafe AI or OpenRouter, hosted, closed weights), Clef and Clef Flash (Cloudflare Workers AI), and the local engine Laya (open weights, the default); the local side holds Laya or other pre-deterministic routing models. Category membership and the shared `/v1/systemone` wire contract are documented claims from those projects and the cited index, not measurements made here. Jev is one vendor's member of the category, not the category's name.
 
 ## Configuration
 
@@ -31,7 +31,7 @@ Defaults below are read from `settings.py`.
 | `openrouter_model` | `~typesafe/jev-latest` | Model identifier sent by the current OpenRouter adapter. Verify model availability before use. |
 | `laya_base_url` | `http://127.0.0.1:8000` | Local System One decision model server base URL. Plain HTTP is accepted for loopback only. Point it at any engine speaking the same contract. |
 | `laya_endpoint_path` | `/v1/systemone` | Local server path, which is the Decisions protocol these local System One servers publish. |
-| `local_model` | `laya` | Which local System One decision model answers. This is the engine or checkpoint name sent as the request's `model` field, so a different local model is selected by configuration alone. **Not validated against an allowlist**: the slot is deliberately interchangeable, so a new engine works without a code change or a release. Only an empty or whitespace-only value, and one containing a character that would corrupt the JSON `model` string or a URL path segment (`"`, `\`, `?`, `#`, control characters), is rejected at load. Never a mode, an alias, or a member of `jev_fallback_order`. |
+| `local_model` | `laya` | Which local decision model answers, on the local side of Laya or other pre-deterministic routing models. This is the engine or checkpoint name sent as the request's `model` field, so a different local model is selected by configuration alone. **Not validated against an allowlist**: the slot is deliberately interchangeable, so a new engine works without a code change or a release. Only an empty or whitespace-only value, and one containing a character that would corrupt the JSON `model` string or a URL path segment (`"`, `\`, `?`, `#`, control characters), is rejected at load. Never a mode, an alias, or a member of `jev_fallback_order`. |
 | `laya_model` | mirrors `local_model` | Kept for backwards compatibility and superseded by `local_model`. Read only when `local_model` was left alone; `__post_init__` rewrites it to the resolved name, so a pre-existing reader of this setting sees the engine actually sent. |
 | `clef_base_url` | `https://api.cloudflare.com/client/v4/accounts` | Shared base of the per-account Clef path. The account id and the model complete it. Plain HTTP is rejected: a hosted route that carries conversation text must use HTTPS. |
 | `clef_model` | `clef` | Clef checkpoint, either `clef` or `clef-flash`. This is a checkpoint of one provider, not a second provider, so it is never a chain member and never an alias. Any other value is rejected at load. |
@@ -167,22 +167,20 @@ have meant.
 
 #### The local slot is interchangeable
 
-The provider name stays `laya`, but it is a generic local slot for a System One
-decision model rather than a binding to one model. `local_model` selects the
-engine, so any local server speaking the same `/v1/systemone` contract fits by
-configuration alone: point `laya_base_url` at it and name it in `local_model`.
-Known to fit: `laya` (also `laya-multilingual` and `laya-typed-decisions` as
-engine names), `kev` (open weights, also `kev-0.8b`), `tev1` (Together AI,
-Qwen3.5-based, open weights, `Tev1-4B` and `Tev1-0.8B`), and
-`jeff-qwen3.5-0.8b` and `jeff-gemma4-e2b`.
+The provider name stays `laya`, but it is a generic local slot for Laya or other
+pre-deterministic routing models, which are System One decision models, rather
+than a binding to one model. `local_model` selects the engine, so any local
+server speaking the same `/v1/systemone` contract fits by configuration alone:
+point `laya_base_url` at it and name it in `local_model`. Known to fit: `laya`
+(also `laya-multilingual` and `laya-typed-decisions` as engine names).
 
 The interchangeable-engine claim is sourced from
-[chaitin/Decis](https://github.com/chaitin/Decis), which serves those engines
-behind one endpoint speaking TypeSafe's `/v1/systemone` shape, one Docker image
-per engine, where swapping `base_url` is the whole migration. Tev1 is
-[togethercomputer/tev1](https://github.com/togethercomputer/tev1). **No local
-model other than the shipped default has been called live by this package**; the
-claim is that they fit the contract, not that this release measured any of them.
+[chaitin/Decis](https://github.com/chaitin/Decis), which serves Laya or other
+pre-deterministic routing models behind one endpoint speaking TypeSafe's
+`/v1/systemone` shape, one Docker image per engine, where swapping `base_url` is
+the whole migration. **No local model other than the shipped default has been
+called live by this package**; the claim is that such engines fit the contract,
+not that this release measured any of them.
 
 ### Cloudflare Clef
 
@@ -271,7 +269,7 @@ transport. No test sends anything off the machine.
 
 `local_only` (alias `laya`) points the same payload at a local server on loopback. `laya-serve` is the reference server and it publishes `POST /v1/systemone` in the TypeSafe Decisions contract, so the request and response path are identical to the hosted route except for the host, the absence of a credential, and the model field.
 
-The slot is **not** bound to that one server. Anything speaking the same `/v1/systemone` contract fits, selected by `local_model` alone: [chaitin/Decis](https://github.com/chaitin/Decis) serves Laya, Kev, and a Jeff family behind one endpoint with one Docker image per engine, so migrating between them is a `base_url` change. See the alias section for the full list of engines known to fit and for the honesty boundary on what has actually been called.
+The slot is **not** bound to that one server. Anything speaking the same `/v1/systemone` contract fits, selected by `local_model` alone: [chaitin/Decis](https://github.com/chaitin/Decis) serves Laya or other pre-deterministic routing models behind one endpoint with one Docker image per engine, so migrating between them is a `base_url` change. See the alias section for the honesty boundary on what has actually been called.
 
 | Setting | Role |
 |---|---|

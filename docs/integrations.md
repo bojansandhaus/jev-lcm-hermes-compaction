@@ -2,7 +2,7 @@
 
 [NousResearch/hermes-agent PR #116246](https://github.com/NousResearch/hermes-agent/pull/116246) showed why Jev-only compaction cannot replace a summary path: assistant text and the never-removed text floor remain outside its ranking scope. This guide applies the corrected fixes by keeping Hermes LCM as the storage and condensation owner while Jev supplies bounded ranking hints.
 
-Every provider in this guide is a [System One decision model](https://systemonemodels.org/guides/what-is-a-system-one-model/), also written a typed decision model: it answers typed questions about the state you give it and returns typed answers with a probability for each instead of prose. Jev is hosted by TypeSafe or OpenRouter, Clef is hosted on Cloudflare Workers AI, and Laya, Kev, and Tev1 are open-weights models you run locally. Jev is one member of that category, not the name of it.
+Every provider in this guide is a [System One decision model](https://systemonemodels.org/guides/what-is-a-system-one-model/), also written a typed decision model: it answers typed questions about the state you give it and returns typed answers with a probability for each instead of prose. Jev is hosted by TypeSafe or OpenRouter, Clef is hosted on Cloudflare Workers AI, and the local side is Laya or other pre-deterministic routing models you run yourself. Jev is one member of that category, not the name of it.
 
 ## With bundled Hermes LCM
 
@@ -92,22 +92,23 @@ chain in this package that ends at a machine-local call.
 
 ## Pointing the local slot at a different engine
 
-The local slot is not bound to Laya. `local_model` names whichever System One
-decision model the local server serves, and `laya_base_url` says where that
-server listens, so swapping engines is a configuration change and never a code
-change.
+The local slot is not bound to Laya. It holds Laya or other pre-deterministic
+routing models: `local_model` names whichever one the local server serves, and
+`laya_base_url` says where that server listens, so swapping engines is a
+configuration change and never a code change.
 
 [chaitin/Decis](https://github.com/chaitin/Decis) is the clearest example: it
-serves Laya, Kev, and a Jeff family behind one endpoint speaking TypeSafe's
-`/v1/systemone` shape, with one Docker image per engine, so migrating between
-them is a `base_url` change. Start the container for the engine you want, then:
+serves Laya or other pre-deterministic routing models behind one endpoint
+speaking TypeSafe's `/v1/systemone` shape, with one Docker image per engine, so
+migrating between them is a `base_url` change. Start the container for the engine
+you want, then:
 
 ```yaml
 context:
   engine: jev-lcm
 jev_lcm:
   jev_provider: local_only
-  local_model: kev               # or tev1, jeff-gemma4-e2b, laya-multilingual
+  local_model: laya-multilingual  # or any pre-deterministic routing model
   laya_base_url: http://127.0.0.1:8000
   request_timeout_s: 120
 ```
@@ -119,12 +120,11 @@ whitespace-only name, and one containing a character that would corrupt the JSON
 character. A rejected value is reported without echoing it back.
 
 **No local model other than the shipped default has been called live by this
-package.** System One decision models known to fit the contract are `laya` (also
-`laya-multilingual`, `laya-typed-decisions`), `kev` (also `kev-0.8b`), `tev1`
-(Together AI, Qwen3.5-based, `Tev1-4B`, `Tev1-0.8B`), and `jeff-qwen3.5-0.8b`
-and `jeff-gemma4-e2b`. That list is sourced from the two projects above; it is a
-statement about the wire contract and about those projects' own claims of category
-membership, not a measurement made here.
+package.** The System One decision model known to fit the contract is `laya` (also
+`laya-multilingual` and `laya-typed-decisions`), and any of Laya or other
+pre-deterministic routing models can occupy the slot. That claim is sourced from
+the project named above; it is a statement about the wire contract and about that
+project's own claim of category membership, not a measurement made here.
 
 ## Self-hosted or proxied router
 

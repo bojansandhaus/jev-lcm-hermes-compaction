@@ -15,14 +15,12 @@ Naming the category rather than the product matters here, because this plugin re
 | Jev | TypeSafe AI or OpenRouter, hosted | closed | `TYPESAFE_API_KEY` or `OPENROUTER_API_KEY` |
 | Clef, Clef Flash | Cloudflare Workers AI, hosted | open (Apache 2.0) | `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, the `clef` provider |
 | Laya | local, on your own hardware | open (Apache 2.0) | the local slot, `local_model: laya`, which is the default |
-| Kev | local, or OpenRouter | open (Apache 2.0) | the local slot, `local_model: kev` |
-| Tev1 | local, or Together AI | open | the local slot, `local_model: tev1` |
 
 **Membership of the category and the shared `/v1/systemone` wire contract are documented claims from those projects and the cited index, not measurements made by this repository.** No model named above was benchmarked here, and no live call was made to any of them.
 
 ### Repository topics
 
-This repository carries the topics `clef`, `cloudflare`, `compaction`, `context-management`, `decision-model`, `hermes-agent`, `jev`, `kev`, `laya`, `lcm`, `plugin`, `system-one`, and `tev1`. The tags `system-one` and `decision-model` name the category, and `clef`, `kev`, `laya`, and `tev1` name its members, so the tags and this page describe the same thing.
+This repository carries the topics `clef`, `cloudflare`, `compaction`, `context-management`, `decision-model`, `hermes-agent`, `jev`, `laya`, `lcm`, `plugin`, and `system-one`. The tags `system-one` and `decision-model` name the category, and `clef` and `laya` name two of its members, so the tags and this page describe the same thing.
 
 ## What problem does PR #116246 identify?
 
@@ -111,31 +109,28 @@ The same engine therefore runs Jev for Hermes over a TypeSafe key, over an OpenR
 
 ### Can the local slot run something other than Laya?
 
-Yes, and that is the point of the new setting. The provider name stays `laya`, but it is a **generic local slot for a System One decision model** rather than a binding to one model. `local_model` selects which local engine answers, and it defaults to `laya`:
+Yes, and that is the point of the new setting. The provider name stays `laya`, but it is a **generic local slot for Laya or other pre-deterministic routing models**, which are System One decision models, rather than a binding to one model. `local_model` selects which local engine answers, and it defaults to `laya`:
 
 ```yaml
 context:
   engine: jev-lcm
 jev_lcm:
   jev_provider: local_only
-  local_model: kev-0.8b          # or tev1, jeff-gemma4-e2b, anything your server serves
+  local_model: your-local-engine   # any pre-deterministic routing model your server serves
   laya_base_url: http://127.0.0.1:8000
 ```
 
 **There is no allowlist.** A new local model has to work by configuration alone, with no code change and no new provider name, so this package deliberately does not validate `local_model` against a list of known engines. Only an empty or whitespace-only value is rejected, and one containing a character that would corrupt the JSON `model` field or a URL path segment (`"`, `\`, `?`, `#`, or a control character). `local_model` is never a mode, an alias, or a member of `jev_fallback_order`.
 
-Which System One decision models are known to fit the slot, all speaking the same `/v1/systemone` contract:
+The System One decision model known to fit the slot, speaking the same `/v1/systemone` contract:
 
 | System One decision model | Names that select it |
 |---|---|
 | Laya (Convai Innovations, open weights, local) | `laya`, `laya-multilingual`, `laya-typed-decisions` |
-| Kev (open weights, 0.8B to 27B on Qwen3.5 and Qwen3.8 bases) | `kev`, `kev-0.8b` |
-| Tev1 (Together AI, Qwen3.5-based, open weights) | `tev1`, `Tev1-4B`, `Tev1-0.8B` |
-| Jeff family | `jeff-qwen3.5-0.8b`, `jeff-gemma4-e2b` |
 
-The interchangeable-engine claim is sourced from [chaitin/Decis](https://github.com/chaitin/Decis), which serves Laya, Kev, and a Jeff family behind one endpoint speaking TypeSafe's `/v1/systemone` shape, with one Docker image per engine, where swapping `base_url` is the whole migration. Tev1 is [togethercomputer/tev1](https://github.com/togethercomputer/tev1), whose own repository describes `tev1-4B-experimental` as a Qwen3.5-4B fine-tune with open weights. Neither source claims this package measured any of them.
+Listing an engine here is a documented claim from its own project that it speaks the shared contract; it is not a measurement made by this repository. For the interchangeable-engine claim, see [chaitin/Decis](https://github.com/chaitin/Decis), which is self-hosted, serves the shared `/v1/systemone` contract TypeSafe's Jev route also uses, and ships one Docker image per engine, where swapping `base_url` is the whole migration. Any of Laya or other pre-deterministic routing models can occupy the slot that way. Neither the index nor that project claims this package measured any engine.
 
-**No local model other than the shipped default has been called live by this plugin.** The claim is that these engines fit the wire contract, not that this release measured any of them. See [`docs/verification.md`](docs/verification.md) for what was and was not executed.
+**No local model other than the shipped default has been called live by this plugin.** The claim is that such engines fit the wire contract, not that this release measured any of them. See [`docs/verification.md`](docs/verification.md) for what was and was not executed.
 
 The older `laya_model` setting still works and is read when `local_model` is left alone; `local_model` wins when you set it on purpose. `laya_model` is then rewritten to the resolved name, so a pre-existing reader of that setting sees the engine actually sent.
 
@@ -147,7 +142,7 @@ Naming the model category changes no data flow. Every mode below moves the same 
 
 **`local_with_api_fallback` is the one local-first route that can leave your machine.** In that mode, a local attempt that fails a transport, timeout, `401`, `403`, `429`, or `5xx` response sends the scored state to the hosted API as the next hop. That is the point of the mode, so it has to be named explicitly: `local_only` alone sends nothing, `api_only` never selects the local route, and `jev_fallback_order` still rejects `laya`. Selecting either fallback mode with no hosted key at all is a load-time error that names the missing variables, because the mode promises a fallback that could not otherwise exist.
 
-Which vendor's System One decision model answers does not change that answer. A locally hosted Laya, Kev, or Tev1 keeps the state on the machine in every mode; a hosted Jev or Clef call does not, and that is a property of where the model runs, not of which member of the category it is.
+Which vendor's System One decision model answers does not change that answer. A locally hosted Laya or other pre-deterministic routing model keeps the state on the machine in every mode; a hosted Jev or Clef call does not, and that is a property of where the model runs, not of which member of the category it is.
 
 See the [local FAQ](#can-i-run-it-locally-with-laya-instead-of-a-hosted-provider) for the measured limits of the base checkpoint.
 
@@ -253,8 +248,6 @@ Executed on 2026-09-21 on a clean profile: the built wheel installed, the host d
 - Stephen Schoettler, [`hermes-lcm`](https://github.com/stephenschoettler/hermes-lcm), MIT: SQLite, DAG, and recall lineage.
 - Bojan Sandhaus, [`jev-decisions`](https://github.com/bojansandhaus/jev-decisions), MIT: documentation and Decisions-shaped context.
 - [System One Models](https://systemonemodels.org/guides/what-is-a-system-one-model/): the decision model category this plugin's providers belong to, and the independent index it is cited from.
-
-Other members catalogued in the same index: **CLM** and **GLiNER2.5-Decide** (open weights), plus hosted **d1** (Liquid AI), **Mercury Decide** (Inception, free on OpenRouter), **Solar Decide** (Upstage), **pplx-decider** (Perplexity), **Span-01** (Respan), **Decider 1** (meraGPT), and the **OpenAI Decisions API**.
 - TypeSafe: Jev model and Decisions API.
 - OpenRouter: alternate provider surface used by the adapter.
 - Ehrlich and Blackman, Voltropy PBC: LCM paper lineage.
