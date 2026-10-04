@@ -3,42 +3,75 @@
 from dataclasses import dataclass
 from urllib.parse import urlsplit, unquote
 
-# The named arrangements, in this package's vocabulary. Each entry in
-# ``PROVIDER_MODES`` is canonical and keeps its own chain. ``PROVIDER_ALIASES``
-# carries the alternative names for the same arrangements, so an operator
-# can write the mode they mean and get the chain they expect.
+# The four canonical arrangements. Each names which side leads and whether the
+# other side is a fallback, so the mode alone says what leaves the machine.
+# ``PROVIDER_ALIASES`` carries every previously accepted name, so a deployed
+# configuration keeps the routing decision it had before this vocabulary
+# existed, and ``PROVIDER_PINS`` carries the ones that also name a hosted
+# provider to pin.
 PROVIDER_MODES: tuple[str, ...] = (
-    "auto",
-    "typesafe",
-    "openrouter",
-    "laya",
-    "laya_then_hosted",
-    "clef",
+    "api_with_local_fallback",
+    "api_only",
+    "local_only",
+    "local_with_api_fallback",
 )
+# Names this package already accepted, mapped to the canonical mode they
+# denote. ``auto`` keeps this repository's existing meaning rather than the
+# generic one: it resolves the hosted side by credential from
+# ``jev_fallback_order`` and never selects the local route on its own
+# initiative, so a default profile keeps its current behaviour.
 PROVIDER_ALIASES: dict[str, str] = {
-    "jev_api": "auto",
-    "laya_local": "laya",
-    "laya_with_jev_fallback": "laya_then_hosted",
-    "clef_api": "clef",
+    "auto": "api_only",
+    "jev_api": "api_only",
+    "laya": "local_only",
+    "laya_local": "local_only",
+    "laya_then_hosted": "local_with_api_fallback",
+    "laya_with_jev_fallback": "local_with_api_fallback",
+}
+# Aliases that additionally pin which hosted provider leads. Each value is
+# ``(canonical mode, hosted provider)``. ``typesafe``, ``openrouter``, and
+# ``clef`` were already single-provider pins with no fallback hop, so they are
+# ``api_only`` with their pin intact rather than a mode that adds one.
+PROVIDER_PINS: dict[str, tuple[str, str]] = {
+    "typesafe": ("api_only", "typesafe"),
+    "openrouter": ("api_only", "openrouter"),
+    "clef": ("api_only", "clef"),
+    "clef_api": ("api_only", "clef"),
+    "clef_with_local_fallback": ("api_with_local_fallback", "clef"),
 }
 # The Clef checkpoints Cloudflare publishes. This is a checkpoint of one
 # provider rather than a provider of its own, so it is a model setting and
 # never a chain member.
 CLEF_MODELS: tuple[str, ...] = ("clef", "clef-flash")
+# The hosted providers a mode may pin or fall back to. The local provider is
+# absent by design: it is not a chain member, it only leads or backs a mode.
+HOSTED_PROVIDERS: tuple[str, ...] = ("typesafe", "openrouter", "clef")
 
 
-def canonical_provider(value: object) -> str | None:
-    """Resolve an accepted provider value, or ``None`` when it is not one.
+def resolve_mode(value: object) -> tuple[str, str] | None:
+    """Resolve an accepted mode value to ``(canonical mode, pinned provider)``.
 
     An alias resolves to the canonical mode whose behaviour it names, so the
     alias selects the same chain, the same privacy boundary, and the same
-    breaker as that mode.
+    breaker as that mode. The pin is empty unless the name also named a hosted
+    provider, which is how ``typesafe`` stays a TypeSafe pin rather than
+    becoming an order resolved from ``jev_fallback_order``.
     """
     if not isinstance(value, str):
         return None
     if value in PROVIDER_MODES:
-        return value
-    return PROVIDER_ALIASES.get(value)
+        return value, ""
+    pinned = PROVIDER_PINS.get(value)
+    if pinned is not None:
+        return pinned
+    mode = PROVIDER_ALIASES.get(value)
+    return None if mode is None else (mode, "")
+
+
+def canonical_provider(value: object) -> str | None:
+    """The canonical mode a value names, or ``None`` when it names none."""
+    resolved = resolve_mode(value)
+    return None if resolved is None else resolved[0]
 
 
 def invalid_provider(value: object) -> ValueError:
@@ -47,6 +80,10 @@ def invalid_provider(value: object) -> ValueError:
     aliases = ", ".join(
         alias + " for " + mode for alias, mode in PROVIDER_ALIASES.items()
     )
+    pinned = ", ".join(
+        alias + " for " + mode + " on " + provider
+        for alias, (mode, provider) in PROVIDER_PINS.items()
+    )
     return ValueError(
         "invalid jev_provider "
         + repr(value)
@@ -54,12 +91,87 @@ def invalid_provider(value: object) -> ValueError:
         + accepted
         + ", or the mode alias "
         + aliases
+        + ", or the pinned alias "
+        + pinned
     )
+
+
+# The default engine for the local slot. It is the shipped default, not a
+# constraint: any other engine name is accepted by ``local_model``.
+LOCAL_MODEL_DEFAULT = "laya"
+# Characters refused in ``local_model``. The value is sent as the ``model``
+# field of a JSON body, and a self-hosted engine may also interpolate it into a
+# URL path, so the refused set is the union of what would break either: control
+# characters and space, the two JSON string terminators, and the URL delimiters.
+_LOCAL_MODEL_FORBIDDEN = '"\\?#'
+
+
+class Unset(str):
+    """Marks a setting left at its default so an explicit value can win.
+
+    ``local_model`` and ``laya_model`` both name the local engine. The dataclass
+    has to tell "left alone" from "explicitly asked for", because the
+    backwards-compatible rule is that ``local_model`` wins only when it was set
+    on purpose. A plain ``None`` would read as an explicit request to unset, and
+    a plain default string could not be distinguished from a typed one.
+
+    It is a ``str`` subclass so the field keeps an honest ``str`` annotation for
+    every reader, and it is resolved away in ``__post_init__`` before any caller
+    can observe the empty value it carries.
+    """
+
+    def __repr__(self) -> str:
+        return "<unset>"
+
+
+def resolve_local_model(local_model: str, laya_model: str) -> str:
+    """The engine name the local slot sends, and the validation it passes.
+
+    The local slot is interchangeable on purpose, so there is no allowlist:
+    a new local model has to work by configuration alone. What is refused is
+    only what could not be carried safely, namely an empty or whitespace-only
+    name and the characters that would corrupt the JSON ``model`` string or a
+    URL path segment built from it.
+
+    ``local_model`` wins when it was set on purpose. Otherwise the
+    backwards-compatible ``laya_model`` decides, and when that is left alone
+    the shipped default applies, so every existing configuration resolves to
+    exactly what it resolved to before this setting existed.
+
+    Both parameters are typed ``str`` because ``Unset`` is a ``str`` subclass:
+    "left alone" is carried by the value, not by the annotation. A caller that
+    passes something which is not a string at all is rejected by the
+    ``isinstance`` check below rather than by a type error at the boundary.
+    """
+    if isinstance(local_model, Unset):
+        # Left alone, so the backwards-compatible setting decides, and a
+        # ``laya_model`` that was itself left alone falls through to the
+        # documented default of this slot.
+        chosen: str = (
+            LOCAL_MODEL_DEFAULT if isinstance(laya_model, Unset) else laya_model
+        )
+    else:
+        chosen = local_model
+    if not isinstance(chosen, str):
+        raise ValueError("invalid local_model")
+    if not chosen.strip():
+        raise ValueError("local_model must not be empty")
+    if any(c.isspace() or ord(c) < 32 for c in chosen):
+        raise ValueError("local_model must not contain whitespace or control")
+    if any(c in _LOCAL_MODEL_FORBIDDEN for c in chosen):
+        # Reported without the value: a rejected engine name is operator
+        # configuration, but it is not echoed back on the principle that a
+        # diagnostic never carries the text it was given.
+        raise ValueError(
+            "invalid local_model; a name may not contain a quote, a backslash, "
+            "a question mark, or a hash"
+        )
+    return chosen
 
 
 @dataclass(frozen=True)
 class Settings:
-    jev_provider: str = "auto"
+    jev_provider: str = "api_only"
     typesafe_base_url: str = "https://api.typesafe.ai/v1"
     openrouter_base_url: str = "https://openrouter.ai/api"
     openrouter_endpoint_path: str = "/alpha/decisions"
@@ -68,7 +180,18 @@ class Settings:
     openrouter_model: str = "~typesafe/jev-latest"
     laya_base_url: str = "http://127.0.0.1:8000"
     laya_endpoint_path: str = "/v1/systemone"
-    laya_model: str = "convaiinnovations/laya"
+    # Kept for backwards compatibility. ``local_model`` supersedes it and wins
+    # whenever it is set on purpose; this field is read only when ``local_model``
+    # was left alone, and ``__post_init__`` rewrites it to the resolved name so
+    # every existing reader of ``laya_model`` sees the engine actually sent.
+    laya_model: str = Unset()
+    # The local slot is a generic decision-model endpoint, not a binding to one
+    # model. ``local_model`` is the engine or checkpoint name sent to that
+    # server, so a different local model is a configuration change and never a
+    # code change. It is deliberately not checked against a list of known
+    # names: rejecting an unrecognised model would defeat the point of the slot,
+    # and a new local model has to work without a release.
+    local_model: str = Unset()
     # Clef is hosted per account. The base is the shared part of that path; the
     # account id is read from the environment beside the token, because it is
     # configuration a user already has rather than something to store twice.
@@ -112,22 +235,39 @@ class Settings:
     truncate_head_chars: int = 300
     min_result_chars: int = 8000
     hint_budget_tokens: int = 4000
+    # The hosted provider a mode name pins, empty when it pins none. It is not a
+    # setting an operator writes: it is derived from the mode name in
+    # ``__post_init__`` so ``typesafe`` keeps meaning TypeSafe rather than
+    # becoming an order resolved from ``jev_fallback_order``.
+    jev_provider_pin: str = ""
 
     def __post_init__(self) -> None:
-        mode = canonical_provider(self.jev_provider)
-        if mode is None:
+        resolved = resolve_mode(self.jev_provider)
+        if resolved is None:
             raise invalid_provider(self.jev_provider)
+        mode, pinned = resolved
         if mode != self.jev_provider:
             # An alias selects the canonical mode, so every consumer reads one
-            # spelling of the arrangement.
+            # spelling of the arrangement and no alias string reaches a chain,
+            # a diagnostic, a log line, or a URL.
             object.__setattr__(self, "jev_provider", mode)
+        if pinned:
+            # A name that also pinned a hosted provider keeps that pin. It is
+            # stored beside the mode rather than folded into the mode string, so
+            # the mode stays one of the four canonical names.
+            object.__setattr__(self, "jev_provider_pin", pinned)
+        local_model = resolve_local_model(self.local_model, self.laya_model)
+        object.__setattr__(self, "local_model", local_model)
+        # The local slot asks one server for one engine. ``local_model`` wins
+        # when it was set on purpose; otherwise the backwards-compatible
+        # ``laya_model`` decides, and when that is left alone the shipped
+        # default applies. Recording the resolved name in ``laya_model`` keeps
+        # every existing reader of that setting correct.
+        object.__setattr__(self, "laya_model", local_model)
         if (
             not self.jev_fallback_order
             or len(set(self.jev_fallback_order)) != len(self.jev_fallback_order)
-            or any(
-                p not in ("typesafe", "openrouter", "clef")
-                for p in self.jev_fallback_order
-            )
+            or any(p not in HOSTED_PROVIDERS for p in self.jev_fallback_order)
         ):
             raise ValueError("invalid jev_fallback_order")
         if self.clef_model not in CLEF_MODELS:

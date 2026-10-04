@@ -35,6 +35,41 @@ Tamara Tran contributed the upstream state-shaping and two-question scoring desi
 
 The project uses the MIT license. See [third party notices](THIRD_PARTY_NOTICES.md) for licenses and specific reuse.
 
+## [1.0.0] - 2026-10-04
+
+First stable release. It names the four decision modes explicitly, adds the fourth one, and turns the local provider into a generic slot that any local [System One decision model](https://systemonemodels.org/guides/what-is-a-system-one-model/) can occupy by configuration. Every mode name this plugin has ever accepted still resolves, and every configuration that worked before produces the same routing decision.
+
+### Documentation
+
+- **The model category is now named as a category.** Every provider this plugin reaches is a System One decision model, also written a typed decision model: a model that answers typed questions and returns typed answers with a probability for each instead of prose. Jev (TypeSafe, hosted, closed weights), Clef and Clef Flash (Cloudflare Workers AI), Laya (Convai Innovations, open weights, local, the default), Kev (open weights, 0.8B to 27B on Qwen3.5 and Qwen3.8 bases, serving TypeSafe's `/v1/systemone` shape), and Tev1 (Together AI, Qwen3.5-based, open weights) are members of it. The term is TypeSafe's own, coined on 15 September 2026 alongside Jev. Jev is one vendor's member of the category, not the name of the category, so the documentation no longer uses "Jev-like" as a type name.
+- **A taxonomy table and a topic list were added** to `README.md`, and the local-model lists in `README.md`, `docs/reference.md`, `docs/integrations.md`, `RELEASE_NOTES_v1.0.0-stable.md`, and `examples/hermes_config_snippet.yml` now name those members as System One decision models rather than as compatible-with-Jev engines. `README.md` lists the repository's own topic tags, `clef`, `cloudflare`, `compaction`, `context-management`, `decision-model`, `hermes-agent`, `jev`, `kev`, `laya`, `lcm`, `plugin`, `system-one`, `tev1`, so the tags and the prose agree.
+- **Category membership and the shared wire contract stay documented claims.** They come from those projects and from [systemonemodels.org](https://systemonemodels.org/), not from any measurement made here. No privacy statement was softened by this change: `local_only` still never leaves the machine, `local_with_api_fallback` still escalates to a hosted API on a configured trigger, and `api_only` and `api_with_local_fallback` still send the scored state to the hosted API.
+
+### Added
+
+- **The fourth mode, `api_with_local_fallback`.** The hosted API leads and the local model is the last resort, the mirror of `local_with_api_fallback`. It uses the existing cooldown, trigger, and retry machinery unchanged, and it fails at load with no hosted key, naming the missing variable, because it promises a fallback that could not otherwise exist.
+- **`local_model`**, default `laya`. The provider name stays `laya`; this setting selects which local engine answers, as the `model` field of the request. Any local server speaking the same `/v1/systemone` contract therefore fits the slot with no code change and no new provider name, whether it serves Laya, Kev, Tev1, or a member released after this version. Verified-fit engines include `laya` (also `laya-multilingual`, `laya-typed-decisions`), `kev` (also `kev-0.8b`), `tev1` (Together AI, Qwen3.5-based, open weights, `Tev1-4B` and `Tev1-0.8B`), and `jeff-qwen3.5-0.8b` and `jeff-gemma4-e2b`. The interchangeable-engine claim is sourced from [chaitin/Decis](https://github.com/chaitin/Decis), which serves those engines behind one Jev-compatible endpoint with one image per engine, and from [togethercomputer/tev1](https://github.com/togethercomputer/tev1).
+- **`clef_with_local_fallback`**, resolving to `api_with_local_fallback` with the hosted side pinned to Clef.
+- **`tests/test_local_model_slot.py`**, covering the four canonical modes and their provider orders, `local_model` changing what the local request asks for with the default unchanged, the empty, whitespace, and escaping rejections, the precedence rule against `laya_model`, and the privacy log assertions for every mode including the new one.
+- **`tests/test_credential_isolation.py`**, asserting the test credential strip list matches the provider credential map exactly, so a credential added to `providers.py` and forgotten in `conftest.py` fails the suite instead of leaking silently.
+
+### Changed
+
+- **The mode vocabulary is now four canonical names**, each naming which side leads and whether the other side is a fallback: `api_with_local_fallback`, `api_only`, `local_only`, `local_with_api_fallback`. `api_only` is the default and is what the previous `auto` default resolves to, so the default profile is unchanged.
+- **Every previously accepted name keeps working as an alias**, and each resolves to the canonical mode that reproduces the routing decision it produced before: `auto` and `jev_api` to `api_only`, `laya` and `laya_local` to `local_only`, `laya_then_hosted` and `laya_with_jev_fallback` to `local_with_api_fallback`, `clef_api` to `api_only` on Clef. `typesafe`, `openrouter`, and `clef` keep pinning their hosted provider: they resolve to `api_only` carrying a pin in `jev_provider_pin`, so the mode stays one of the four canonical names while the pin keeps the route specific. Aliases resolve before they reach a chain, a diagnostic, a log line, or a URL, so no alias string appears in observable output.
+- **`laya_model` is superseded by `local_model` and is still accepted.** It is read when `local_model` was left alone, `local_model` wins when it is set on purpose, and `laya_model` is then rewritten to the resolved name so any pre-existing reader of it sees the engine actually sent. Its default is now `laya` rather than `convaiinnovations/laya`, which is the same default expressed through the generic slot.
+- **`local_model` is deliberately not validated against an allowlist**, because the point of the slot is that a new local model works without a release. Only an empty or whitespace-only value, and one carrying a character that would corrupt the JSON `model` string or a URL path segment (`"`, `\`, `?`, `#`, or a control character), is rejected at load, and a rejected value is reported without being echoed back.
+- **`tests/conftest.py` exposes its strip rule as `is_credential` and `CREDENTIAL_VARIABLES`.** The behaviour is unchanged, including the by-name stripping of `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` added in `1.0.0-rc.5`, and the rule is now testable rather than implicit.
+- **Version is `1.0.0`** in `pyproject.toml`, `plugin.yaml`, and `__init__.py`, replacing `1.0.0rc5`. This is the first stable release and the release candidates are not continued.
+
+### Privacy boundary
+
+Unchanged in direction and strengthened in coverage. `local_only` still never leaves the machine; `local_with_api_fallback` still sends the scored state to a hosted API when the local server fails a configured trigger; `api_only` and `api_with_local_fallback` send it to the hosted API on the first hop. New tests assert that a log line, a diagnostic, and an error message in every mode carry the provider and the exception class only, never a credential value, a state, candidate text, a question, or an answer.
+
+### Not established
+
+No local model other than the shipped default has been called live, and no claim is made that any of them was measured: the interchangeable-engine list is a statement about the wire contract, sourced from the two projects named above. The production recall-at-budget comparison, fresh-profile installation qualification, provider parity review, and final documentation review remain open, exactly as they did for the candidates. `1.0.0` here is a version number, not a claim that those gates passed.
+
 ## [1.0.0-rc.5] - 2026-10-04 (unpublished)
 
 Adds Cloudflare Clef as a fourth decision-model provider, selectable alone or inside the existing chain and fallback machinery. An installation that sets `auto`, `typesafe`, `openrouter`, `laya`, or `laya_then_hosted` behaves exactly as it did in `1.0.0-rc.4`. No live Clef call is part of this candidate and none is claimed: no Cloudflare credential available on the machine that built it is authorized for Workers AI, so every Clef test runs against an injected transport.

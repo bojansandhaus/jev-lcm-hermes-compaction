@@ -159,9 +159,15 @@ def test_the_local_endpoint_is_validated_like_every_other_provider():
     default = Settings()
     assert default.laya_base_url == "http://127.0.0.1:8000"
     assert default.laya_endpoint_path == "/v1/systemone"
-    assert default.laya_model == "convaiinnovations/laya"
-    assert Settings().jev_provider == "auto"
-    assert Settings(jev_provider="laya").jev_provider == "laya"
+    # The local slot defaults to the generic engine name rather than a pinned
+    # checkpoint: the default is what the server resolves, and every other
+    # engine name is selectable by configuration alone.
+    assert default.local_model == "laya"
+    # ``laya_model`` is kept and mirrors whatever the slot resolved, so an
+    # existing reader of it still sees the engine that is actually sent.
+    assert default.laya_model == "laya"
+    assert Settings(laya_model="english").local_model == "english"
+    assert Settings(jev_provider="laya").jev_provider == "local_only"
     assert Settings().jev_fallback_order == ("typesafe", "openrouter")
     with pytest.raises(ValueError, match="invalid jev_provider"):
         Settings(jev_provider="local")

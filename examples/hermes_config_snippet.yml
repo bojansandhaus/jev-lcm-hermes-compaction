@@ -1,8 +1,15 @@
 context:
   engine: jev-lcm
 jev_lcm:
-  # auto filters providers whose environment variable is absent.
-  jev_provider: auto
+  # Every provider below is a System One decision model: it answers typed
+  # choice, score, and noul questions about the state and returns typed answers
+  # with a probability for each, instead of prose. See
+  # https://systemonemodels.org/guides/what-is-a-system-one-model/
+  #
+  # The four modes are api_with_local_fallback, api_only, local_only, and
+  # local_with_api_fallback. api_only is the default and filters providers whose
+  # environment variable is absent. auto is a still-accepted alias for it.
+  jev_provider: api_only
   jev_fallback_enabled: true
   jev_fallback_order: [typesafe, openrouter]
   jev_calibration_enabled: true
@@ -12,7 +19,8 @@ jev_lcm:
   jev_batch_window_turns: 3
   jev_max_candidates_per_batch: 300
   hint_budget_tokens: 4000
-  # Optional: select Cloudflare Clef as a provider.
+  # Optional: select Cloudflare Clef as a provider. Clef is a member of the
+  # same System One category as the hosted Jev providers, hosted on Workers AI.
   #
   # jev_provider: clef          # or the alias clef_api
   # clef_base_url: https://api.cloudflare.com/client/v4/accounts
@@ -21,10 +29,24 @@ jev_lcm:
   # Selecting clef sends the scored state to api.cloudflare.com. Both
   # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set or the chain
   # fails at load, naming the missing variable.
+  #
+  # Optional: score on the machine instead, with any local System One decision
+  # model that speaks the same /v1/systemone contract. local_model is not checked
+  # against an allowlist, so a new engine works by configuration alone.
+  #
+  # jev_provider: local_only     # or local_with_api_fallback for a hosted hop
+  # local_model: laya            # or kev, tev1, jeff-gemma4-e2b, ...
+  # laya_base_url: http://127.0.0.1:8000
+  # request_timeout_s: 120
+  #
+  # local_only never leaves the machine, whichever System One decision model
+  # serves it. local_with_api_fallback sends the state to a hosted API when the
+  # local server fails a configured trigger, so it has to be named explicitly.
+  # laya_model is still accepted and is read only when local_model is left alone.
 
 # Supply these outside this file through a secret manager:
 # TYPESAFE_API_KEY
 # OPENROUTER_API_KEY
-# LAYA_API_KEY
+# LAYA_API_KEY                     # only if the local server was started with it
 # CLOUDFLARE_API_TOKEN          # Cloudflare Workers AI credential
 # CLOUDFLARE_ACCOUNT_ID         # Cloudflare account id; configuration, not a secret

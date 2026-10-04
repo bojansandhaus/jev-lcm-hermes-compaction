@@ -45,12 +45,29 @@ Everything below was run on this head with the repository's declared tooling. No
 
 ## Release content
 
-The `1.0.0` changelog section and [RELEASE_NOTES_v1.0.0.md](../RELEASE_NOTES_v1.0.0.md) contain the requested release content. The `1.0.0-rc.4` changelog entry and [RELEASE_NOTES_v1.0.0-rc.4.md](../RELEASE_NOTES_v1.0.0-rc.4.md) carry this candidate's content. No stable release is asserted.
+The `1.0.0` changelog section and [RELEASE_NOTES_v1.0.0-stable.md](../RELEASE_NOTES_v1.0.0-stable.md) carry the first stable release's content. [RELEASE_NOTES_v1.0.0.md](../RELEASE_NOTES_v1.0.0.md) is retained unchanged because it holds the `1.0.0-rc.1` content from 2026-09-21, and the `1.0.0-rc.2` through `1.0.0-rc.5` notes are retained for the same reason. Publication of the stable release is not asserted: nothing was committed, tagged, or released for it.
+
+## Executed locally for `1.0.0`
+
+- **246 tests pass** with `python -m pytest -q --ignore=tests/test_plugin.py`, up from 162 on `1.0.0-rc.5`. `tests/test_plugin.py` remains excluded for the pre-existing reason recorded above: it imports `hermes_cli.plugins`, which imports `hermes_yaml` from the Hermes source tree, which is not on this venv's interpreter path.
+- The four canonical modes and every alias, asserted against both the resolved canonical mode and the resulting provider order in `tests/test_laya_mode_aliases.py`, including that `auto` and `typesafe` still build the chains they built before and that no alias string reaches a diagnostic.
+- `local_model` acceptance and rejection in `tests/test_local_model_slot.py`: nine engine names accepted with no code change including one this package has never heard of, the default unchanged, precedence against `laya_model` in both directions, and rejection of empty, whitespace, quote, backslash, question-mark, hash, and control-character values, with a rejected value confirmed absent from its own error message.
+- The privacy log assertions for all four modes in the same file: a failure whose exception message carries the URL, the credential, the state, the candidate text, and the question reaches neither `caplog` nor `diagnostics()`, and the fallback log line carries no state and no answer.
+- The credential isolation rule is now asserted rather than assumed: `tests/test_credential_isolation.py` checks that `conftest.CREDENTIAL_VARIABLES` equals the union of `providers.ENV` and `providers.ACCOUNT_ENV`, so a credential added to the chain and forgotten in the fixture fails the suite. The whole suite was additionally run with all five credential variables set to sentinels in the environment and reported 246 passed, confirming the real-token path stays closed.
+- `evaluation/live_clef.py` was executed and reported the same offline wire shape as on `1.0.0-rc.5`, including `clef_flash_is_a_checkpoint_not_a_provider: true` and the `success: false` envelope reporting code 7003.
+
+Not executed, and not claimed:
+
+- **No live local model call of any kind.** No local model server is running on this machine, and no local test in the suite uses a real socket. No engine other than the shipped default has ever been asked for a score here, and the interchangeable-engine list in the documentation is sourced from `chaitin/Decis` and `togethercomputer/tev1` rather than from a measurement.
+- `evaluation/live_laya_then_hosted.py` cannot run on this machine: it needs a live `laya-serve` on loopback and raises `ProviderError: transport_error`. The same failure reproduces on the pre-change commit `ee8ea34`, so it is an environment condition rather than a regression from this work.
+- No score quality, latency, or cost figure is claimed for `api_with_local_fallback` or for any engine that can occupy the local slot.
+- **Membership of the System One decision model category and the shared `/v1/systemone` wire contract are documented claims, not measurements made here.** The category term comes from [systemonemodels.org](https://systemonemodels.org/guides/what-is-a-system-one-model/), which is an independent index not affiliated with any vendor, and the member list and the interchangeable-engine list come from `chaitin/Decis` and `togethercomputer/tev1`. No member of the category was benchmarked, scored, or called live for this documentation change, and the taxonomy edits changed no routing, no request body, and no privacy boundary.
+- No `python -m build` was run for this release, so no wheel or source distribution is asserted.
 
 ## Publication record
 
 - Continuous integration, workflow `Tests`, passes on the default branch: the runs for the pushed rework commits, including `35637318780`, were read back green.
-- Repository topics include `lcm`, `compaction`, `context-management`, and `jev`; the DSH repository also carries the required `dsh-plugin` discovery topic.
+- Repository topics are `clef`, `cloudflare`, `compaction`, `context-management`, `decision-model`, `hermes-agent`, `jev`, `kev`, `laya`, `lcm`, `plugin`, `system-one`, and `tev1`. The `system-one` and `decision-model` tags name the System One decision model category and the member tags name its models, matching the taxonomy table in `README.md`; the DSH repository also carries the required `dsh-plugin` discovery topic.
 - The release candidate is published as a GitHub prerelease tagged `v1.0.0-rc.1` at the commit whose CI run passed, with the built artifact `jev_lcm_hermes_compaction-1.0.0rc1-py3-none-any.whl` attached and verified downloadable. Registry publication has not happened, so no PyPI availability is claimed, and the `v1.0.0` tag is still unused.
 - npm publication is still blocked: `npm whoami` reports no session on this machine, so `npm publish` cannot run until an npm login exists. For this distribution the remaining command is `npm publish --access public`.
 

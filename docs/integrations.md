@@ -2,6 +2,8 @@
 
 [NousResearch/hermes-agent PR #116246](https://github.com/NousResearch/hermes-agent/pull/116246) showed why Jev-only compaction cannot replace a summary path: assistant text and the never-removed text floor remain outside its ranking scope. This guide applies the corrected fixes by keeping Hermes LCM as the storage and condensation owner while Jev supplies bounded ranking hints.
 
+Every provider in this guide is a [System One decision model](https://systemonemodels.org/guides/what-is-a-system-one-model/), also written a typed decision model: it answers typed questions about the state you give it and returns typed answers with a probability for each instead of prose. Jev is hosted by TypeSafe or OpenRouter, Clef is hosted on Cloudflare Workers AI, and Laya, Kev, and Tev1 are open-weights models you run locally. Jev is one member of that category, not the name of it.
+
 ## With bundled Hermes LCM
 
 Enable this package per profile:
@@ -33,8 +35,8 @@ Set `jev_provider: openrouter` and `OPENROUTER_API_KEY`. The default surface is 
 
 ## Cloudflare Clef only
 
-Cloudflare Workers AI hosts the Clef decision model, so a Clef route needs no
-TypeSafe or OpenRouter account at all. Set `jev_provider: clef`, or the alias
+Clef is a System One decision model hosted on Cloudflare Workers AI, so a Clef
+route needs no TypeSafe or OpenRouter account at all. Set `jev_provider: clef`, or the alias
 `clef_api`, and supply both of these through your secret manager:
 
 | Variable | Role |
@@ -72,15 +74,57 @@ validation are in `docs/reference.md`.
 state, the candidate text, and the protected anchors all leave the machine on
 every request. There is no redaction step, and the raw archive is not encrypted
 by this package. Review Cloudflare's retention terms for the account before
-enabling it, and use `laya` if the content must not leave the machine.
+enabling it, and use a local System One decision model such as Laya if the content
+must not leave the machine.
 
 ## Both providers with fallback
 
-Use `jev_provider: auto`, keep `jev_fallback_enabled: true`, and configure both keys. The default order is TypeSafe, then OpenRouter. A configured error in `jev_fallback_on` cools the failed provider and tries the next provider. `jev_providers` exposes only environment-variable names, status, cooldowns, and sanitized errors. A log line has the form:
+Use the default mode (`api_only`, or the alias `auto`), keep `jev_fallback_enabled: true`, and configure both keys. The default order is TypeSafe, then OpenRouter. A configured error in `jev_fallback_on` cools the failed provider and tries the next provider. `jev_providers` exposes only environment-variable names, status, cooldowns, and sanitized errors. A log line has the form:
 
 ```text
 jev_provider_fallback from=typesafe to=openrouter reason=429
 ```
+
+To add the local decision model as the last resort instead, use
+`api_with_local_fallback`. The hosted providers lead in the order above and the
+local slot answers only after they fail a configured trigger, which is the one
+chain in this package that ends at a machine-local call.
+
+## Pointing the local slot at a different engine
+
+The local slot is not bound to Laya. `local_model` names whichever System One
+decision model the local server serves, and `laya_base_url` says where that
+server listens, so swapping engines is a configuration change and never a code
+change.
+
+[chaitin/Decis](https://github.com/chaitin/Decis) is the clearest example: it
+serves Laya, Kev, and a Jeff family behind one endpoint speaking TypeSafe's
+`/v1/systemone` shape, with one Docker image per engine, so migrating between
+them is a `base_url` change. Start the container for the engine you want, then:
+
+```yaml
+context:
+  engine: jev-lcm
+jev_lcm:
+  jev_provider: local_only
+  local_model: kev               # or tev1, jeff-gemma4-e2b, laya-multilingual
+  laya_base_url: http://127.0.0.1:8000
+  request_timeout_s: 120
+```
+
+There is no allowlist on `local_model`, and that is deliberate: a new engine has
+to work without a code change or a release. What is refused is an empty or
+whitespace-only name, and one containing a character that would corrupt the JSON
+`model` field or a URL path segment, which is `"`, `\`, `?`, `#`, or any control
+character. A rejected value is reported without echoing it back.
+
+**No local model other than the shipped default has been called live by this
+package.** System One decision models known to fit the contract are `laya` (also
+`laya-multilingual`, `laya-typed-decisions`), `kev` (also `kev-0.8b`), `tev1`
+(Together AI, Qwen3.5-based, `Tev1-4B`, `Tev1-0.8B`), and `jeff-qwen3.5-0.8b`
+and `jeff-gemma4-e2b`. That list is sourced from the two projects above; it is a
+statement about the wire contract and about those projects' own claims of category
+membership, not a measurement made here.
 
 ## Self-hosted or proxied router
 

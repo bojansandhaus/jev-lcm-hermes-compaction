@@ -98,7 +98,7 @@ class TypeSafeProvider(JevProvider):
 
 
 class LayaProvider(JevProvider):
-    """A local Laya server, reached over the Jev Decisions wire contract.
+    """A local decision-model server, reached over the Jev Decisions contract.
 
     ``laya-serve`` publishes ``POST /v1/systemone`` and answers with the same
     ``answers`` mapping a hosted Decisions provider returns, so this provider is
@@ -106,17 +106,21 @@ class LayaProvider(JevProvider):
     and no credential is required: ``LAYA_API_KEY`` is sent only when the server
     was started with its own bearer check.
 
-    ``laya_model`` names a Laya checkpoint (``english``, ``multilingual``,
-    ``typed-decisions``, or the published repository ids). Any other value,
-    including a Jev model identifier, makes the server choose a checkpoint from
-    the script and language of the state.
+    This is the package's generic local slot rather than a binding to one model.
+    The provider name stays ``laya`` because that is the mode vocabulary an
+    operator already writes, while ``local_model`` selects which engine answers.
+    ``Settings`` resolves that precedence once, so the value read here is the
+    engine or checkpoint the operator asked for. Any local server speaking the
+    same contract therefore fits this slot by configuration alone: point
+    ``laya_base_url`` at it and name it in ``local_model``. No allowlist is
+    applied, so a new engine works without a release.
     """
 
     name = "laya"
 
     def __init__(self, settings: Settings):
         self.url = endpoint(settings.laya_base_url, settings.laya_endpoint_path)
-        self.model = settings.laya_model
+        self.model = settings.local_model
 
 
 class ClefProvider(JevProvider):
@@ -316,39 +320,47 @@ class ProviderChain:
         self._accounts = {
             name: environment.get(var, "").strip() for name, var in ACCOUNT_ENV.items()
         }
-        if settings.jev_provider == "laya":
-            # Laya runs locally in place of the hosted Jev providers, so the
-            # local mode has no chain to fall through and no credential to find.
+        if settings.jev_provider == "local_only":
+            # The local slot alone in place of the hosted providers: no chain to
+            # fall through and no credential to find.
             self.order = ["laya"]
-        elif settings.jev_provider == "laya_then_hosted":
-            # Laya leads and the keyed hosted providers follow. This mode exists
-            # to provide the fallback, so selecting it without any hosted key is
-            # a load-time error rather than a quietly local-only profile.
+        elif settings.jev_provider == "local_with_api_fallback":
+            # The local slot leads and the keyed hosted providers follow. This
+            # mode exists to provide the fallback, so selecting it without any
+            # hosted key is a load-time error rather than a quietly local-only
+            # profile.
             hosted = [p for p in settings.jev_fallback_order if self._keys[p]]
             if not hosted:
                 raise ValueError(
-                    "laya_then_hosted needs a hosted fallback key: "
+                    "local_with_api_fallback needs a hosted fallback key: "
                     + ", ".join(ENV[p] for p in settings.jev_fallback_order)
                 )
             self.order = ["laya"] + hosted
-        elif settings.jev_provider == "auto":
-            # The hosted chain contains only providers with a usable key. The
-            # keyless local provider is never selected on its own initiative.
-            self.order = [p for p in settings.jev_fallback_order if self._keys[p]]
+        elif settings.jev_provider == "api_only":
+            if settings.jev_provider_pin:
+                # A pinned name names its hosted provider outright, so the
+                # fallback order does not get a vote.
+                pinned = settings.jev_provider_pin
+                self._require_credential(pinned)
+                self.order = [pinned]
+            else:
+                # The hosted chain contains only providers with a usable key.
+                # The keyless local slot is never selected on its own
+                # initiative, which is what keeps the default mode's behaviour
+                # exactly as it was.
+                self.order = [p for p in settings.jev_fallback_order if self._keys[p]]
         else:
-            if not self._keys[settings.jev_provider]:
-                raise ValueError("missing " + ENV[settings.jev_provider])
-            if (
-                settings.jev_provider in ACCOUNT_ENV
-                and not self._accounts[settings.jev_provider]
-            ):
-                # A pinned provider promises a usable route, so the account id
-                # is checked at load beside the key. In a chain the membership
-                # decision is made on keys alone, so a member without an account
-                # joins and then refuses each request instead, naming the same
-                # variable.
-                raise ValueError("missing " + ACCOUNT_ENV[settings.jev_provider])
-            self.order = [settings.jev_provider]
+            # api_with_local_fallback: the hosted providers lead, in the order
+            # that already exists here, and the local slot is the last resort.
+            # It is a two-provider chain, so it uses the existing cooldown,
+            # trigger, and breaker machinery unchanged.
+            hosted = [p for p in settings.jev_fallback_order if self._keys[p]]
+            if not hosted:
+                raise ValueError(
+                    "api_with_local_fallback needs a hosted key: "
+                    + ", ".join(ENV[p] for p in settings.jev_fallback_order)
+                )
+            self.order = hosted + ["laya"]
         if not settings.jev_fallback_enabled:
             self.order = self.order[:1]
         self.providers: dict[str, JevProvider] = {
@@ -362,6 +374,20 @@ class ProviderChain:
         self.last_provider = ""
         self.fallback_count = 0
         self.calls = 0
+
+    def _require_credential(self, provider: str) -> None:
+        """Fail at load when a pinned provider has no usable route.
+
+        A pinned provider promises a usable route, so its credential and, where
+        the route needs one, its account id are checked at load beside each
+        other. In a chain the membership decision is made on keys alone, so a
+        member without an account id joins and then refuses each request
+        instead, naming the same variable.
+        """
+        if not self._keys[provider]:
+            raise ValueError("missing " + ENV[provider])
+        if provider in ACCOUNT_ENV and not self._accounts[provider]:
+            raise ValueError("missing " + ACCOUNT_ENV[provider])
 
     def diagnostics(self) -> dict[str, Any]:
         return {

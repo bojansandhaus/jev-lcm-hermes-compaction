@@ -64,11 +64,14 @@ def shape(
         trial = {**state, "candidates": state["candidates"] + [entry]}
         trial_q = {**qs, **questions(candidate)}
         envelope = {
+            # The local slot's resolved engine name is what its provider sends,
+            # so it belongs in this worst-case model-length bound beside the two
+            # hosted ids.
             "model": max(
                 (
                     settings.jev_model,
                     settings.openrouter_model,
-                    settings.laya_model,
+                    settings.local_model,
                 ),
                 key=len,
             ),

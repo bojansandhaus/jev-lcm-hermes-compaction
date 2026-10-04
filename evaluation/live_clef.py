@@ -113,7 +113,10 @@ def phase_2_checkpoint() -> dict[str, Any]:
             "chain_order": chain.order,
         }
     out["clef_flash_is_a_checkpoint_not_a_provider"] = (
-        Settings(jev_provider="clef", clef_model="clef-flash").jev_provider == "clef"
+        Settings(jev_provider="clef", clef_model="clef-flash").jev_provider
+        == "api_only"
+        and Settings(jev_provider="clef", clef_model="clef-flash").jev_provider_pin
+        == "clef"
         and "clef-flash"
         not in Settings(jev_fallback_order=("clef",)).jev_fallback_order
     )

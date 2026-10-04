@@ -5,19 +5,37 @@ import pytest
 
 from jev_lcm_hermes_compaction import providers
 
+# Every environment variable that carries a provider credential, or the
+# configuration a credential's endpoint cannot be built without. These are
+# stripped by name rather than by suffix: the original rule removed names
+# ending in ``API_KEY`` or starting with ``LCM_``, which matches neither
+# ``CLOUDFLARE_API_TOKEN`` nor ``CLOUDFLARE_ACCOUNT_ID``. That gap let a
+# developer's real Cloudflare environment reach a test asserting an empty
+# ``keys_present``. A test that reads a credential must never see the machine's.
+CREDENTIAL_VARIABLES: tuple[str, ...] = (
+    "TYPESAFE_API_KEY",
+    "OPENROUTER_API_KEY",
+    "LAYA_API_KEY",
+    "CLOUDFLARE_API_TOKEN",
+    "CLOUDFLARE_ACCOUNT_ID",
+)
+
+
+def is_credential(name: str) -> bool:
+    """Whether ``name`` is stripped from the environment before a test runs."""
+    return (
+        name.endswith("API_KEY")
+        or name.startswith("LCM_")
+        or name in CREDENTIAL_VARIABLES
+    )
+
 
 @pytest.fixture(autouse=True)
 def isolate(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     for key in list(os.environ):
-        if key.endswith("API_KEY") or key.startswith("LCM_"):
+        if is_credential(key):
             monkeypatch.delenv(key, raising=False)
-    # Clef's credential is named _API_TOKEN rather than _API_KEY, and its
-    # account id is configuration rather than a credential. Both are stripped by
-    # name so a developer's real Cloudflare environment cannot reach a test that
-    # asserts an empty or a synthetic provider set.
-    for key in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
-        monkeypatch.delenv(key, raising=False)
     # The local-hop breaker counts failures per process, so a test that fails
     # the local provider must not charge the next test's counter.
     monkeypatch.setattr(providers, "_laya_failure_count", 0)

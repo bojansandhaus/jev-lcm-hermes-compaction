@@ -89,7 +89,11 @@ def test_clef_alone_is_the_same_chain_as_the_mode_alias():
     canonical = ProviderChain(Settings(jev_provider="clef"), BOTH_KEYS, recorder([]))
     assert aliased.order == canonical.order == ["clef"]
     assert aliased.diagnostics() == canonical.diagnostics()
-    assert Settings(jev_provider="clef_api").jev_provider == "clef"
+    # Both spellings resolve to the canonical mode; the pin is what carries the
+    # provider identity, so no alias string reaches the settings object.
+    assert Settings(jev_provider="clef_api").jev_provider == "api_only"
+    assert Settings(jev_provider="clef").jev_provider_pin == "clef"
+    assert Settings(jev_provider="clef_api").jev_provider_pin == "clef"
 
 
 def test_the_account_and_the_token_are_read_from_the_environment_and_not_logged():

@@ -184,19 +184,24 @@ def test_the_mode_never_prints_a_key_value():
     assert "TYPESAFE_API_KEY" in diagnostics and "OPENROUTER_API_KEY" in diagnostics
 
 
-def test_the_three_provider_modes_keep_their_own_chain_shapes():
+def test_the_four_provider_modes_keep_their_own_chain_shapes():
     local_only = ProviderChain(Settings(jev_provider="laya"), BOTH_KEYS, lambda *a: {})
     assert local_only.order == ["laya"]
-    auto = ProviderChain(Settings(), BOTH_KEYS, lambda *a: {})
-    assert auto.order == ["typesafe", "openrouter"]
-    assert "laya" not in auto.order
-    keyless_auto = ProviderChain(Settings(), {}, lambda *a: {})
-    assert keyless_auto.order == []
+    api_only = ProviderChain(Settings(), BOTH_KEYS, lambda *a: {})
+    assert api_only.order == ["typesafe", "openrouter"]
+    assert "laya" not in api_only.order
+    keyless = ProviderChain(Settings(), {}, lambda *a: {})
+    assert keyless.order == []
     with pytest.raises(ValueError, match="invalid jev_fallback_order"):
         Settings(jev_fallback_order=("laya",))
     with pytest.raises(ValueError, match="invalid jev_fallback_order"):
         Settings(jev_fallback_order=("typesafe", "laya"))
-    assert Settings(jev_provider="laya_then_hosted").jev_provider == "laya_then_hosted"
+    # The alias resolves to the canonical mode, which is the spelling every
+    # consumer reads; the alias itself never survives resolution.
+    assert (
+        Settings(jev_provider="laya_then_hosted").jev_provider
+        == "local_with_api_fallback"
+    )
     with pytest.raises(ValueError, match="invalid jev_provider"):
         Settings(jev_provider="laya_then_local")
 
