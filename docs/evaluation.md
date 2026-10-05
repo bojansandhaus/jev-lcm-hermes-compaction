@@ -46,6 +46,8 @@ From the bundled fixture `bundled-synthetic-transcript`, measured 2026-09-21:
 | `jev-only` | 52655 | 52749 | no | 2 of 2 | 1.00 | not applicable |
 | `jev-lcm` | 52655 | 136 | yes | 2 of 2 | 1.00 | 1 |
 
+These figures are as of commit `18629ab` (recorded 2026-09-21) and predate the anchor-pattern fix, so they describe no behaviour added since; the harness was deliberately not re-run for that change.
+
 The `verdict` block in `evaluation/results.json` carries the comparison this harness is able to make: `production_recall_at_budget` 0.0 against `jev_lcm_recall_at_budget` 1.0, `jev_lcm_meets_or_beats_production` true, `jev_only_budget_converged` false. It also carries `upstream_transcripts_available: false` and `upstream_production_run_reproduced: false`, because the production arm here is a local stand-in rather than the published run. An earlier manual-message-selection evaluator was rejected and replaced; none of its figures is accepted as plugin performance.
 
 ## Upstream production baseline

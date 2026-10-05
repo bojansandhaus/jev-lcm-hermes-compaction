@@ -1,6 +1,6 @@
 # Jev-LCM Compaction Plugin for Hermes
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue.svg)](pyproject.toml) [![Version: 1.0.0](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue.svg)](pyproject.toml) [![Version: 1.0.1](https://img.shields.io/badge/version-1.0.1-blue.svg)](CHANGELOG.md)
 
 **Jev-LCM Compaction Plugin for Hermes** is the proposed fix for the Jev-only failure modes reported in [hermes-agent PR #116246](https://github.com/NousResearch/hermes-agent/pull/116246). Lossless Context Management for Hermes keeps raw evidence, while Jev compaction for Hermes ranks stale tool calls and recoverable assistant-text anchors before the Hermes context engine condenses history. The current checkout is experimental. Installation, live provider quality, and performance superiority remain unverified.
 
