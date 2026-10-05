@@ -218,13 +218,24 @@ class Settings:
     jev_calibration_min_samples: int = 50
     conservative: bool = False
     jev_anchor_protection_enabled: bool = True
+    # The two bounded windows below are deliberate, measured behaviour changes,
+    # and both are asserted in ``tests/test_anchor_scan_performance.py``. A
+    # greedy ``[^.!?\n]*`` or ``[^"'\n]*`` retried from every offset of a long
+    # input is quadratic: at HEAD the quoted-path pattern took 9.5 seconds on a
+    # single 64 KB input with one opening quote and no closing one. Bounded at
+    # 400 characters either side of the slash, the same input takes about 2
+    # milliseconds and every quoted path under 800 characters still matches
+    # exactly as before. A quoted run longer than that bound is truncated: the
+    # lower-cost choice is to drop the oversized span rather than to spend
+    # seconds per turn re-deriving one, and no real path in a transcript runs
+    # to 800 characters.
     jev_anchor_patterns: tuple[str, ...] = (
         r"\b[a-f0-9]{7,40}\b",
         r"\b[A-Z_]{2,}_(?:KEY|TOKEN|SECRET|URL|PATH|ID)\b",
         r"[^.!?\n]{0,400}(?:root cause|because|constraint|must|never|always)[^.!?\n]{0,400}[.!?]?",
         r"(?:\bline \d+\b|:[0-9]+:[0-9]+)",
         r"`[^`\n]+`",
-        r"[\"'][^\"'\n]*(?:/|\\)[^\"'\n]*[\"']",
+        r"[\"'][^\"'\n]{0,400}(?:/|\\)[^\"'\n]{0,400}[\"']",
         r"\b[vV]?\d+\.\d+\.\d+(?:[+.-][\w.]+)?\b",
     )
     jev_batch_window_turns: int = 3

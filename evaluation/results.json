@@ -1,4 +1,7 @@
 {
+  "commit": "18629ab",
+  "generated_at": "2026-09-21T21:20:24+02:00",
+  "stale_note": "Recorded on commit 18629ab, twelve commits before the current head. The harness was not re-run for the anchor fix, so these figures predate it and describe no behaviour added since.",
   "fixture": {
     "name": "bundled-synthetic-transcript",
     "note": "Synthetic transcript assembled by this harness. The PR #116246 transcripts are real session data and are not published, so the production arm here is the host's default condensation path running locally against this fixture, not the PR's private run.",
