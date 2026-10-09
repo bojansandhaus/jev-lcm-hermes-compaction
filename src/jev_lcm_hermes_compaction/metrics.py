@@ -22,6 +22,10 @@ class Metrics(dict[str, Any]):
                     "lcm_nodes_created",
                     "lcm_text_floor_tokens",
                     "jev_provider_fallback_count",
+                    "jev_hint_dropped",
+                    "jev_anchor_block_dropped",
+                    "jev_starved_count",
+                    "low_cycles",
                 )
             }
         )
@@ -32,16 +36,37 @@ class Metrics(dict[str, Any]):
             lcm_recall_at_budget=None,
             lcm_freed_per_compaction=0.0,
         )
-        self.low_cycles = 0
+
+    @property
+    def low_cycles(self) -> int:
+        """Consecutive compactions that freed less than 20 percent.
+
+        A property over the mapping key rather than a plain attribute, so the
+        counter an attribute reader and a `dict(m)` / JSON reader see are the
+        same number. As an attribute it was invisible to the mapping, which is
+        how the metrics leave this class.
+        """
+        return int(self.get("low_cycles", 0))
+
+    @low_cycles.setter
+    def low_cycles(self, value: int) -> None:
+        self["low_cycles"] = int(value)
 
     def compaction(self, before: int, after: int, nodes: int, text_floor: int) -> None:
+        # A compaction that grew the context is not "negative freed space"; it
+        # is zero freed space. Left unclamped the value went below zero, the
+        # `freed < 20` test was never reached for the cycles that mattered, and
+        # the low-cycle warning never fired on the shape that most needs it.
         freed = 100 * (before - after) / before if before else 0.0
+        freed = min(100.0, max(0.0, freed))
         self.update(
             lcm_freed_per_compaction=freed,
             lcm_summary_nodes_created=nodes,
             lcm_nodes_created=nodes,
             lcm_text_floor_tokens=text_floor,
         )
+        # Stored in the mapping, not only as an attribute, so it survives
+        # `dict(m)` and JSON round-trips the way every other counter does.
         self.low_cycles = self.low_cycles + 1 if freed < 20 else 0
         if self.low_cycles >= 3:
             logging.getLogger(__name__).warning(

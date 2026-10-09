@@ -315,6 +315,7 @@ def endpoint(base: str, path: str) -> str:
     if (
         "\\" in decoded
         or any(ord(c) < 33 for c in decoded)
+        or ".." in unquote(base)
         or parsed.scheme not in ("https", "http")
         or not parsed.netloc
         or parsed.username

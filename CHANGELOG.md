@@ -2,6 +2,104 @@
 
 This project addresses the Jev-only compaction failure modes described in [Hermes PR #116246](https://github.com/NousResearch/hermes-agent/pull/116246). The work below concerns calibrated scoring, protected evidence, text condensation, bounded requests, batching, and operational visibility.
 
+## [1.2.0] - 2026-10-09
+
+Five ways the evidence Jev decided to keep never reached the prompt: a kept tool
+result the hint budget could not carry, a `break` that discarded the whole anchor
+index on one oversized row, a local breaker that suppressed the hosted fallback
+for the process lifetime, candidates behind the batch cap that starved
+permanently, and an unscored count that only existed after a flush. Full notes:
+[RELEASE_NOTES_v1.2.0.md](RELEASE_NOTES_v1.2.0.md).
+
+### Fixed
+
+- **`hint_block()` dropped every kept tool result.** A kept result at the
+  default `min_result_chars` of 8000 is about 8000 bytes against a 4000-token
+  default hint budget, so the entry never fits and the block returned `""`.
+  Because `protected()` sorts by score descending, the evidence Jev had just
+  spent a request deciding to keep was exactly what never reached the prompt.
+  Every withheld row now leaves a one-line receipt naming the `store_id`, the
+  byte length, and the recovery tool, and the drop is counted as
+  `jev_hint_dropped`.
+- **`active_context_block()` discarded every later anchor on the first oversized
+  row.** Rows arrive ordered by keep score descending, so the highest-scoring
+  row is the most likely to be large and breaking on it dropped the whole tail
+  of the index. Now a `continue`, with a scan cap of 64 rows bounding the render
+  cost; the suppressed count is `jev_anchor_block_dropped`.
+- **A local outage suppressed the hosted fallback for the process lifetime.**
+  `_laya_failure_count` was cleared only by a successful local call, which a
+  suppressed fallback makes impossible to obtain, and the count outlived the
+  per-chain cooldown map that would otherwise have retried the local server. The
+  counter now rearms after 60 seconds with no new local failure, measured from
+  the most recent failure. `diagnostics()` reports `laya_failure_window_s`
+  beside `laya_consecutive_failures`.
+- **Candidates behind the per-batch cap starved permanently.**
+  `shape()` took `candidates[: jev_max_candidates_per_batch]` in insertion
+  order, so a candidate that arrived after the last slot was deferred by every
+  batch forever with nothing recording it. `Candidate.jev_dropped_batches`
+  counts the wait and `candidate_priority()` sorts by it first, so the queue
+  drains. Reported as `jev_starved_count`.
+- **`Prepass._counts()` reported `jev_unscored_count` only after a flush.** With
+  the default three-turn batch window, two of every three turns never flush, so
+  `jev_stats` reported zero unscored candidates while they waited. `collect()`
+  now writes it, and `jev_starved_count`, from candidate state.
+- **`metrics.compaction()` could report negative freed space.**
+  `100 * (before - after) / before` goes below zero whenever `after` exceeds
+  `before`, and a negative value fails the `freed < 20` test that drives the
+  low-cycle warning, so the cycles that most needed the signal were the ones
+  that missed it. Clamped to `[0, 100]`.
+- **`endpoint()` accepted percent-encoded traversal in the base path.** The `..`
+  check ran against `unquote(path)` only, so `https://example.test-/%2e%2e/
+  secrets` passed: `urlsplit` puts the encoded segment in the netloc, the check
+  never saw it, and the joined URL decoded into a traversal at the server. The
+  base is now checked the same way.
+- **`jev_calibrate --dry-run` made a live network call.** It called
+  `chain.score()` with a synthetic state, billing a request the docs call a dry
+  run, and `ProviderChain(settings)` was built before the check, so an unpinned
+  chain that fails at load raised an uncaught traceback. `--dry-run` sends
+  nothing and reports the resolved chain; `--live` is the sending path and its
+  help text names the request it bills. Both construction points are guarded and
+  a load failure prints the message as JSON with exit code 2.
+
+### Changed
+
+- `low_cycles` is a property over the mapping key rather than only an attribute,
+  so it round-trips through `dict(m)` and JSON like every other counter. It is
+  the counter that gates a warning and it was the one that vanished.
+- `tests/test_compressor.py::test_protected_evidence_is_budgeted_by_real_assembly`
+  asserted `prompt.count("cafebabedeadbeef") == 1`, which pinned the old early
+  exit: the anchor is legitimately carried by two protected rows and now appears
+  twice. The test still asserts what it was written for — the assembly stays
+  within `max_assembly_tokens` and no candidate row is emitted twice — now
+  explicitly rather than inferred from a count of one.
+- `conftest.py`'s isolation fixture resets the breaker's failure timestamp
+  beside the count, so no test inherits the window from the one before it.
+- `README.md` and `docs/reference.md`: `api_only` is documented as the
+  multi-provider chain filtered by credential that the code builds, not a
+  single-provider route. Only a pinned `api_only` is single-provider. The two
+  framings of Clef are unified as one provider with two checkpoints, where the
+  chain member is always `clef` and `clef_model` selects the checkpoint.
+
+### Added
+
+- `tests/test_prepass.py`, 8 tests: withheld-evidence receipts with and without
+  a store id, what fits still quoted verbatim, the scan continuing past an
+  oversized row, the anchor-block skip instead of the `break`, the scan cap, and
+  the unscored and starved counts before and after a flush.
+- `tests/test_state_shaper.py`, 4 tests: the batch cap admits the longest-starved
+  candidate first, anchors outrank tool results, recent messages outrank older
+  ones at equal starvation, and the ordering neither mutates the caller's list
+  nor depends on input order.
+- `tests/test_metrics.py`, 4 tests: the clamped range, a negative cycle still
+  charging the low-cycle counter, `low_cycles` round-tripping through the
+  mapping, and the new counters starting at zero.
+- `tests/test_laya_fallback_breaker.py`, 2 tests: an outage that outlives the
+  window rearms the breaker, and the window reported in diagnostics.
+- `tests/test_http_cli.py`, 3 tests: a dry run sends nothing, `--live` sends
+  exactly one request, and a load failure is data rather than a traceback.
+- `tests/test_settings.py`: base-side percent-encoded traversal is rejected,
+  and a normal pinned base is still accepted.
+
 ## [1.1.0] - 2026-10-09
 
 The reason-sentence pre-test guard silently discarded every `must` / `never` /

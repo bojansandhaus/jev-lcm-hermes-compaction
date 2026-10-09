@@ -44,24 +44,51 @@ Transport = Callable[[str, str, dict[str, Any], float], Any]
 # the process rather than in a chain, so it survives a rebuilt chain, and it
 # resets when the process restarts. Any successful local call clears it, on the
 # hosted fallback path and on the plain local path alike.
+#
+# The count is also bounded by silence. An outage two hours old is not evidence
+# about the local server now, and a count that only a successful local call can
+# clear is a count nothing clears while the fallback it gates is suppressed: the
+# local hop is cooled down for `jev_fallback_cooldown_s` after every failure,
+# and a rebuilt chain starts with an empty cooldown map but the same process
+# count, so the breaker can outlive both the outage and the chain that saw it.
+# Once the window has elapsed with no new failure the counter rearms, so the
+# local server is retried and the hosted fallback is permitted again.
 _LAYA_FALLBACK_FAILURE_LIMIT = 3
+_LAYA_FALLBACK_WINDOW_S = 60.0
 _laya_failure_lock = threading.Lock()
 _laya_failure_count = 0
+_laya_last_failure_at: float | None = None
 
 
-def _laya_failure_recorded() -> bool:
+def _laya_failure_recorded(now: float) -> bool:
     """Count one local failure and report whether the hosted fallback may follow."""
-    global _laya_failure_count
+    global _laya_failure_count, _laya_last_failure_at
     with _laya_failure_lock:
+        if (
+            _laya_failure_count
+            and _laya_last_failure_at is not None
+            and now - _laya_last_failure_at >= _LAYA_FALLBACK_WINDOW_S
+        ):
+            # The window elapsed without a new failure, so the count describes
+            # an outage that is over rather than one that is happening. Rearm
+            # it: this failure is a first failure.
+            _laya_failure_count = 0
         _laya_failure_count += 1
+        _laya_last_failure_at = now
         return _laya_failure_count <= _LAYA_FALLBACK_FAILURE_LIMIT
 
 
 def _laya_failure_cleared() -> None:
     """Clear the breaker after a local call answered."""
-    global _laya_failure_count
+    global _laya_failure_count, _laya_last_failure_at
     with _laya_failure_lock:
         _laya_failure_count = 0
+        _laya_last_failure_at = None
+
+
+def laya_failure_window_s() -> float:
+    """Seconds of silence after which a stalled local outage rearms the breaker."""
+    return _LAYA_FALLBACK_WINDOW_S
 
 
 def laya_consecutive_failures() -> int:
@@ -402,6 +429,7 @@ class ProviderChain:
             "last_errors": self.errors,
             "last_provider": self.last_provider,
             "laya_consecutive_failures": laya_consecutive_failures(),
+            "laya_failure_window_s": laya_failure_window_s(),
         }
 
     def score(self, state: Any, questions: dict[str, Any]) -> dict[str, float]:
@@ -455,7 +483,7 @@ class ProviderChain:
                     # local error is re-raised instead of being answered
                     # remotely, so repeated local failures stop turning every
                     # batch into hosted traffic.
-                    if not _laya_failure_recorded():
+                    if not _laya_failure_recorded(self.clock()):
                         LOG.warning(
                             "laya_fallback_suppressed after %d consecutive local failures",
                             _LAYA_FALLBACK_FAILURE_LIMIT,

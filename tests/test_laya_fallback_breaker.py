@@ -168,3 +168,65 @@ def test_a_hosted_failure_does_not_charge_the_local_breaker():
         chain.score(STATES[0], QUESTIONS)
     assert chain.fallback_count == 1
     assert providers.laya_consecutive_failures() == 0
+
+
+def test_an_outage_that_outlives_the_window_rearms_the_breaker():
+    """A tripped breaker is not a permanent sentence.
+
+    The count used to be cleared only by a successful local call, which a
+    suppressed fallback makes impossible: past the limit every call raised
+    before the hosted hop ran, so no success could arrive and the local route
+    was dead for the life of the process, even a minute after the server
+    recovered. The window bounds that. Once it elapses the next failure is
+    counted as a first failure again, so the local server is retried and the
+    hosted fallback is permitted.
+    """
+    now = [1000.0]
+    seen = []
+    chain = ProviderChain(
+        Settings(jev_provider="laya_then_hosted", jev_fallback_cooldown_s=0),
+        BOTH_KEYS,
+        split_transport(seen),
+        lambda: now[0],
+    )
+    for state in STATES[:3]:
+        now[0] += 30.0
+        try:
+            chain.score(state, QUESTIONS)
+        except ProviderError:
+            raise AssertionError("the first three failures must still fall through")
+    assert seen == [LOCAL, HOSTED] * 3
+    assert providers.laya_consecutive_failures() == 3
+
+    # The fourth call trips the breaker and raises without a hosted call.
+    now[0] += 1.0
+    with pytest.raises(ProviderError, match="transport_error"):
+        chain.score(STATES[3], QUESTIONS)
+    assert seen == [LOCAL, HOSTED] * 3 + [LOCAL]
+    assert providers.laya_consecutive_failures() == 4
+
+    # Inside the window the same outage keeps being suppressed.
+    now[0] += 1.0
+    with pytest.raises(ProviderError, match="transport_error"):
+        chain.score(STATES[3], QUESTIONS)
+    assert seen == [LOCAL, HOSTED] * 3 + [LOCAL, LOCAL]
+    assert providers.laya_consecutive_failures() == 5
+
+    # Past the window the outage is a first failure again: the local hop is
+    # tried and the hosted fallback is permitted rather than suppressed.
+    now[0] += providers.laya_failure_window_s()
+    assert chain.score(STATES[3], QUESTIONS) == {"x:keep_result": 0.77}
+    assert chain.last_provider == "typesafe"
+    assert seen[-2:] == [LOCAL, HOSTED]
+
+
+def test_the_breaker_reports_its_window_in_diagnostics():
+    chain = ProviderChain(
+        Settings(jev_provider="laya_then_hosted"),
+        BOTH_KEYS,
+        split_transport([]),
+    )
+    report = chain.diagnostics()
+    assert report["laya_consecutive_failures"] == 0
+    assert report["laya_failure_window_s"] == providers.laya_failure_window_s()
+    assert report["laya_failure_window_s"] > 0

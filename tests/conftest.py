@@ -37,8 +37,11 @@ def isolate(tmp_path, monkeypatch):
         if is_credential(key):
             monkeypatch.delenv(key, raising=False)
     # The local-hop breaker counts failures per process, so a test that fails
-    # the local provider must not charge the next test's counter.
+    # the local provider must not charge the next test's counter. The timestamp
+    # that bounds the count is reset beside it, so no test inherits the window
+    # from the one before it.
     monkeypatch.setattr(providers, "_laya_failure_count", 0)
+    monkeypatch.setattr(providers, "_laya_last_failure_at", None)
 
 
 def synthetic_transport(score: float = 0.99):

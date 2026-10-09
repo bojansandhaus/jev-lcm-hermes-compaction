@@ -126,7 +126,15 @@ def test_protected_evidence_is_budgeted_by_real_assembly(tmp_path):
     assembled = engine._assemble_context(None, [messages[-1]])
     assert count_messages_tokens(assembled) <= cfg.max_assembly_tokens
     prompt = "\n".join(str(message.get("content", "")) for message in assembled)
-    assert prompt.count("cafebabedeadbeef") == 1
+    assert prompt.count("cafebabedeadbeef") >= 1
+    # The anchor is kept by two distinct protected rows, so it may legitimately
+    # appear more than once. What must not happen is a single row appearing
+    # twice: the budget and the scan cap may each withhold evidence, but neither
+    # may emit a duplicate. The assertion below was `== 1`, which pinned the
+    # previous block to stopping at its first oversized row.
+    rows = [line for line in prompt.splitlines() if line.startswith("[candidate=")]
+    assert rows
+    assert len(rows) == len({row.split(";", 1)[0] for row in rows})
 
 
 def test_index_write_failure_keeps_volatile_evidence_in_real_assembly(
