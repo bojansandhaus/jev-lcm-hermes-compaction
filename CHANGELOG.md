@@ -2,6 +2,50 @@
 
 This project addresses the Jev-only compaction failure modes described in [Hermes PR #116246](https://github.com/NousResearch/hermes-agent/pull/116246). The work below concerns calibrated scoring, protected evidence, text condensation, bounded requests, batching, and operational visibility.
 
+## [1.1.0] - 2026-10-09
+
+The reason-sentence pre-test guard silently discarded every `must` / `never` /
+`always` anchor, and the same three defect shapes in the TypeScript sibling are
+fixed there in the same release. Full notes:
+[RELEASE_NOTES_v1.1.0.md](RELEASE_NOTES_v1.1.0.md).
+
+### Fixed
+
+- **The reason-sentence guard knew three of the pattern's six trigger words.**
+  `_REASON_TRIGGER` held `root cause|because|constraint`, while the shipped
+  pattern alternates over those plus `must|never|always`. On a message whose only
+  trigger was one of the missing three, the guard skipped the pattern and the
+  sentence never became a candidate. Verified against the raw regex: all three
+  inputs yielded 1 span, `extract()` yielded 0. No metric recorded the loss.
+- **The guard's case policy did not match the pattern's.** The guard was
+  `re.IGNORECASE` and the pattern was not, so a capitalised sentence-initial
+  trigger (`Because the cache is cold...`) passed the guard and then matched
+  nothing.
+- **`_needs_reason_trigger` asked for two specific substrings** to decide a
+  pattern was reason-shaped, so an operator-supplied pattern without both lost
+  the guard entirely and paid the 49-second pathological cost from a documented
+  setting. No test covered a custom pattern list.
+
+### Changed
+
+- The guard's vocabulary is read out of the pattern's own alternation, so the
+  guard, its applicability and the pattern it guards cannot drift apart again.
+- The reason-sentence pattern is the one pattern compiled case-insensitively,
+  because reason text is prose and its trigger's case depends on where the word
+  falls in the sentence. The detector is case-sensitive on purpose: an
+  ignorecase detector classified the shipped credential pattern
+  `(?:KEY|TOKEN|SECRET|URL|PATH|ID)` as reason-shaped too and silently widened
+  it to match `superscret_key`.
+
+### Added
+
+- `tests/test_anchor_reason_guard.py`, 15 tests: every trigger yields a span;
+  capitalisation honoured at sentence start, middle and after a period; the
+  guard's vocabulary asserted equal to the pattern's alternation; a homeomorphic
+  custom pattern guarded and still matching; the guard still short-circuits on
+  64 KB of trigger-free text; and the credential and identifier patterns
+  matching exactly what they matched before.
+
 ## [Unreleased]
 
 Jev-LCM Compaction Plugin for Hermes: Jev ranks stale evidence before LCM condenses conversation history.
