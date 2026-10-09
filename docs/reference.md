@@ -34,7 +34,7 @@ Defaults below are read from `settings.py`.
 | `local_model` | `laya` | Which local decision model answers, on the local side of Laya or other pre-deterministic routing models. This is the engine or checkpoint name sent as the request's `model` field, so a different local model is selected by configuration alone. **Not validated against an allowlist**: the slot is deliberately interchangeable, so a new engine works without a code change or a release. Only an empty or whitespace-only value, and one containing a character that would corrupt the JSON `model` string or a URL path segment (`"`, `\`, `?`, `#`, control characters), is rejected at load. Never a mode, an alias, or a member of `jev_fallback_order`. |
 | `laya_model` | mirrors `local_model` | Kept for backwards compatibility and superseded by `local_model`. Read only when `local_model` was left alone; `__post_init__` rewrites it to the resolved name, so a pre-existing reader of this setting sees the engine actually sent. |
 | `clef_base_url` | `https://api.cloudflare.com/client/v4/accounts` | Shared base of the per-account Clef path. The account id and the model complete it. Plain HTTP is rejected: a hosted route that carries conversation text must use HTTPS. |
-| `clef_model` | `clef` | Clef checkpoint, either `clef` or `clef-flash`. This is a checkpoint of one provider, not a second provider, so it is never a chain member and never an alias. Any other value is rejected at load. |
+| `clef_model` | `clef` | Clef checkpoint, either `clef` or `clef-flash`. Both are checkpoints of the one `clef` provider, so the checkpoint names a model and never a chain member or an alias: `jev_fallback_order` and `jev_provider_pin` take `clef` and never a checkpoint name. Any other value is rejected at load. |
 | `jev_fallback_enabled` | `true` | Permit fallback to the next configured provider. |
 | `jev_fallback_order` | `typesafe, openrouter` | Ordered preference inside the hosted providers. The local route is not a chain member under any spelling; `local_with_api_fallback` places it in front of this order and `api_with_local_fallback` places it behind. `clef` is accepted here as a member, and `clef-flash` and `local_model` are not members under any spelling. |
 | `jev_fallback_on` | transport, timeout, 401, 403, 429, 5xx | Errors eligible for fallback. |
@@ -117,16 +117,22 @@ leaves the machine.
 | Mode | Leads | Fallback | Provider order with both hosted keys |
 |---|---|---|---|
 | `api_with_local_fallback` | hosted API | local | `typesafe`, `openrouter`, `laya` |
-| `api_only` | hosted API | none | `typesafe`, `openrouter` |
+| `api_only` | hosted API | between keyed hosted members | `typesafe`, `openrouter` |
 | `local_only` | local | none | `laya` |
 | `local_with_api_fallback` | local | hosted API | `laya`, `typesafe`, `openrouter` |
 
-`api_only` and `local_only` are single-provider routes: no fallback, no chain,
-no cooldown list beyond the one provider. A failure is reported, never
-rerouted. `api_with_local_fallback` and `local_with_api_fallback` are
-two-provider chains and use the existing cooldown, trigger, and breaker
-machinery unchanged. A mode that promises a fallback but has no usable provider
-for the other side fails at load, naming the missing environment variable.
+`local_only` is a single-provider route: `laya` alone, no fallback, no chain, no
+cooldown list beyond the one provider. A failure is reported, never rerouted.
+`api_only` is not: it is a multi-provider chain filtered by credential, holding
+every `jev_fallback_order` member that has a key. With both hosted keys present
+a `429` from `typesafe` cools that provider and tries `openrouter`, which is
+exactly the fallback machinery the fallback modes use. Only a pinned `api_only`
+— `jev_provider_pin: typesafe` — is a single-provider route, because a pin names
+its provider outright and the fallback order gets no vote.
+`api_with_local_fallback` and `local_with_api_fallback` are two-provider chains
+and use the existing cooldown, trigger, and breaker machinery unchanged. A mode
+that promises a fallback but has no usable provider for the other side fails at
+load, naming the missing environment variable.
 
 #### Aliases
 
@@ -384,9 +390,11 @@ none of the three reaches `caplog` or `diagnostics()`.
 
 `jev_stats` reports the counters below when the plugin is active:
 
-`jev_candidates_total`, `jev_keep_call_count`, `jev_keep_result_count`, `jev_anchor_count`, `jev_unscored_count`, `jev_calls`, `jev_pruned_units`, `jev_fallbacks`, `lcm_summary_nodes_created`, `lcm_nodes_created`, `lcm_text_floor_tokens`, `jev_provider_fallback_count`, `jev_threshold_current`, `jev_threshold_calibrated`, `jev_provider_primary`, `lcm_recall_at_budget`, and `lcm_freed_per_compaction`.
+`jev_candidates_total`, `jev_keep_call_count`, `jev_keep_result_count`, `jev_anchor_count`, `jev_unscored_count`, `jev_calls`, `jev_pruned_units`, `jev_fallbacks`, `jev_starved_count`, `jev_hint_dropped`, `jev_anchor_block_dropped`, `lcm_summary_nodes_created`, `lcm_nodes_created`, `lcm_text_floor_tokens`, `jev_provider_fallback_count`, `jev_threshold_current`, `jev_threshold_calibrated`, `jev_provider_primary`, `lcm_recall_at_budget`, `lcm_freed_per_compaction`, and `low_cycles`.
 
-After three consecutive compactions freeing less than 20 percent, the current metrics implementation emits a warning recommending review of the LCM context threshold or summary depth. This is an operator signal, not a performance claim. `jev_providers` reports provider order, environment-variable names present, non-credential configuration variable names present, cooldowns, last errors, and last provider. It must never print key values, and it must never print the Cloudflare account id: `configuration_present` reports the variable name, as `keys_present` reports a credential's name without its value.
+`jev_starved_count` counts candidates that waited through at least one batch without reaching a scoring slot; `jev_hint_dropped` counts protected rows the hint budget could not carry at full length, each of which still leaves a recoverable pointer; `jev_anchor_block_dropped` counts anchor rows skipped by the assembly budget or the scan cap.
+
+After three consecutive compactions freeing less than 20 percent, the current metrics implementation emits a warning recommending review of the LCM context threshold or summary depth. This is an operator signal, not a performance claim. `lcm_freed_per_compaction` is clamped to [0, 100]: a compaction that grew the context reports 0 rather than a negative number, so the low-cycle signal still fires. `low_cycles` is a counter in the mapping rather than only an attribute, so it round-trips through `dict(m)` and JSON. `jev_providers` reports provider order, environment-variable names present, non-credential configuration variable names present, cooldowns, last errors, last provider, and the local breaker state (`laya_consecutive_failures` and `laya_failure_window_s`). It must never print key values, and it must never print the Cloudflare account id: `configuration_present` reports the variable name, as `keys_present` reports a credential's name without its value.
 
 ## Upstream lineage and sources
 

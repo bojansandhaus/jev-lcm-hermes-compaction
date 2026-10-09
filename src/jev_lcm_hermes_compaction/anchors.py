@@ -19,6 +19,11 @@ class Candidate:
     scores: dict[str, float] = field(default_factory=dict)
     action: str = "unscored"
     jev_unscored: bool = True
+    # Batches in a row that this candidate waited through without reaching a
+    # slot. The cap takes a prefix of the admission order, so without this the
+    # candidates behind the cap are deferred by every batch and the loss is
+    # invisible.
+    jev_dropped_batches: int = 0
 
 
 # `anchors.extract` runs over every assistant message on every turn, so the cost

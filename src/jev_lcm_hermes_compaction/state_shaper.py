@@ -53,7 +53,8 @@ def shape(
             state = trial
     selected: list[Candidate] = []
     qs: dict[str, Any] = {}
-    for candidate in candidates[: settings.jev_max_candidates_per_batch]:
+    ordered = ordered_candidates(candidates)
+    for candidate in ordered[: settings.jev_max_candidates_per_batch]:
         entry = {
             "id": candidate.id,
             "kind": candidate.kind,
@@ -86,3 +87,30 @@ def shape(
         state, qs = trial, trial_q
         selected.append(candidate)
     return state, qs, selected, tier
+
+
+def candidate_priority(candidate: Candidate) -> tuple[int, int, int, int]:
+    """Rank a candidate for a batch slot: the longest-starved first.
+
+    The per-batch cap takes a prefix of this ordering, so the ordering decides
+    which evidence is scored. Taking the candidates in insertion order starved
+    everything behind the cap, batch after batch, with nothing recording it:
+    a candidate that entered after the last slot never reached the top of the
+    list, so it was dropped from every batch forever.
+
+    Dropped count leads, so a candidate that has already waited out a batch is
+    considered before one that has not, and the queue drains instead of
+    freezing. Anchors then outrank tool results, and message position and start
+    offset break the remainder deterministically.
+    """
+    return (
+        -candidate.jev_dropped_batches,
+        0 if candidate.kind == "anchor" else 1,
+        -candidate.message_index,
+        -candidate.start,
+    )
+
+
+def ordered_candidates(candidates: list[Candidate]) -> list[Candidate]:
+    """Order candidates for batch admission without mutating the caller's list."""
+    return sorted(candidates, key=candidate_priority)

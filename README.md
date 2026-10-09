@@ -83,11 +83,11 @@ Configuration exposes exactly four selectable modes. Each one names which side l
 | Mode | Leads | Fallback | Provider order with both hosted keys |
 |---|---|---|---|
 | `api_with_local_fallback` | hosted API | local | `typesafe`, `openrouter`, `laya` |
-| `api_only` | hosted API | none | `typesafe`, `openrouter` |
+| `api_only` | hosted API | between keyed hosted members | `typesafe`, `openrouter` |
 | `local_only` | local | none | `laya` |
 | `local_with_api_fallback` | local | hosted API | `laya`, `typesafe`, `openrouter` |
 
-`api_only` is the default and it is the mode a profile that sets nothing gets. It never selects the local route on its own initiative, so default behaviour is unchanged from earlier releases. `api_only` and `local_only` are single-provider routes: a failure is reported, never rerouted. The two fallback modes are two-provider chains and use the existing cooldown, trigger, and breaker machinery unchanged. A mode that promises a fallback but has no usable provider for the other side fails at load, naming the missing environment variable.
+`api_only` is the default and it is the mode a profile that sets nothing gets. It never selects the local route on its own initiative, so default behaviour is unchanged from earlier releases. `local_only` is a single-provider route: `laya` alone, so a failure is reported, never rerouted. `api_only` is a **multi-provider chain filtered by credential**: it holds every `jev_fallback_order` member that has a key, so with both keys present a `429` from TypeSafe falls through to OpenRouter. Only a pinned `api_only` (`jev_provider_pin: typesafe`) is genuinely single-provider, because a pin names its provider outright and takes the fallback order out of the decision. The two fallback modes are two-provider chains and use the existing cooldown, trigger, and breaker machinery unchanged. A mode that promises a fallback but has no usable provider for the other side fails at load, naming the missing environment variable.
 
 Every name this plugin accepted before still works, resolving to the canonical mode it denotes:
 
@@ -149,6 +149,8 @@ See the [local FAQ](#can-i-run-it-locally-with-laya-instead-of-a-hosted-provider
 ### Can I use Cloudflare Clef instead of a Jev provider?
 
 Yes, and it needs neither a TypeSafe nor an OpenRouter account. Clef is another member of the System One category, hosted on Cloudflare Workers AI, and it answers the same typed questions as the hosted Jev providers, so this package sends it the same `model`, `state`, and `questions` body and reads the same `answers` mapping back.
+
+Clef is one provider with two checkpoints. The chain member is always `clef`, and `clef_model` selects which checkpoint answers: `clef` or `clef-flash`. So `clef` appears in `jev_provider_pin` and in `jev_fallback_order`, while `clef-flash` appears only in `clef_model`.
 
 ```yaml
 context:
@@ -229,7 +231,7 @@ The active engine exposes `jev_stats`, `jev_scores`, `jev_anchors`, `jev_provide
 
 ## What does observability show?
 
-Counters include `jev_candidates_total`, `jev_keep_call_count`, `jev_keep_result_count`, `jev_anchor_count`, `jev_unscored_count`, `jev_calls`, `jev_pruned_units`, `jev_fallbacks`, `jev_provider_fallback_count`, `jev_threshold_current`, `jev_threshold_calibrated`, `jev_provider_primary`, `lcm_summary_nodes_created`, `lcm_nodes_created`, `lcm_text_floor_tokens`, `lcm_freed_per_compaction`, and `lcm_recall_at_budget`. Three consecutive compactions below 20% freed space produce a warning. The evaluation field stays unevaluated until a real harness supplies a result.
+Counters include `jev_candidates_total`, `jev_keep_call_count`, `jev_keep_result_count`, `jev_anchor_count`, `jev_unscored_count`, `jev_calls`, `jev_pruned_units`, `jev_fallbacks`, `jev_provider_fallback_count`, `jev_starved_count`, `jev_hint_dropped`, `jev_anchor_block_dropped`, `jev_threshold_current`, `jev_threshold_calibrated`, `jev_provider_primary`, `lcm_summary_nodes_created`, `lcm_nodes_created`, `lcm_text_floor_tokens`, `lcm_freed_per_compaction`, `low_cycles`, and `lcm_recall_at_budget`. Three consecutive compactions below 20% freed space produce a warning, and `lcm_freed_per_compaction` is clamped to [0, 100] so a compaction that grew the context reports 0 instead of a negative number. The evaluation field stays unevaluated until a real harness supplies a result.
 
 ## Why use this design?
 
